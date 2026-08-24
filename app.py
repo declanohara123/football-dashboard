@@ -1,16 +1,15 @@
 from pathlib import Path
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
-# Page Configuration
 st.set_page_config(
     page_title="Championship Analytics | Opta Trajectories",
     page_icon="⚽",
     layout="wide",
 )
 
-# Custom Championship Team Color Map
+# Club Color Map
 TEAM_COLORS = {
     "West Ham": "#7A263A",
     "Millwall": "#002F6C",
@@ -23,18 +22,18 @@ TEAM_COLORS = {
     "Swansea": "#111111",
     "Wrexham": "#E30613",
     "Birmingham": "#0000FF",
-    "Norwich": "#FFF200",
+    "Norwich": "#D4B000",
     "Derby": "#231F20",
     "Blackburn": "#009EE0",
     "Portsmouth": "#001489",
     "QPR": "#0054A6",
     "Charlton": "#D4001A",
-    "Watford": "#FBEE23",
+    "Watford": "#E6B800",
     "Bolton": "#1B2A4A",
     "Cardiff": "#0070B8",
     "Bristol C": "#E21B23",
-    "Lincoln": "#E31B23",
-    "Preston": "#FFFFFF",
+    "Lincoln": "#D91C24",
+    "Preston": "#4A5568",
     "Stoke": "#E03A3E",
 }
 
@@ -46,7 +45,6 @@ DATA_PATH = BASE_DIR / "data" / "expected_positions.csv"
 def load_data():
   if not DATA_PATH.exists():
     return pd.DataFrame()
-
   try:
     data = pd.read_csv(DATA_PATH)
     if len(data.columns) <= 1:
@@ -84,110 +82,155 @@ def load_data():
 df = load_data()
 
 if df.empty or "team" not in df.columns:
-  st.error("⚠️ Unable to load dataset or CSV is improperly formatted.")
+  st.error("⚠️ Unable to load dataset.")
   st.stop()
 
-# Header Section
 st.title("⚽ EFL Championship Trajectories")
 st.caption("Opta Expected Metrics & Season Outcome Probabilities")
 
-# Top KPI Summary Cards with Fail-Safe Logic
+# Top KPI Section
 latest_date = df["date"].dropna().iloc[-1] if not df["date"].dropna().empty else "N/A"
 latest_df = df[df["date"] == latest_date]
 
-if not latest_df.empty and "Title" in latest_df.columns and "xpts" in latest_df.columns:
+if not latest_df.empty and "Title" in latest_df.columns:
   top_title = latest_df.sort_values(by="Title", ascending=False).iloc[0]
   top_xpts = latest_df.sort_values(by="xpts", ascending=False).iloc[0]
 
-  kpi1, kpi2, kpi3 = st.columns(3)
-  kpi1.metric(
+  k1, k2, k3 = st.columns(3)
+  k1.metric(
       "Title Favorite",
       f"{top_title['team']}",
-      f"{top_title['Title'] * 100:.1f}% Prob" if pd.notnull(top_title['Title']) else "N/A",
+      f"{top_title['Title']*100:.1f}% Prob",
   )
-  kpi2.metric(
+  k2.metric(
       "Expected Points Leader",
       f"{top_xpts['team']}",
-      f"{top_xpts['xpts']:.1f} xPts" if pd.notnull(top_xpts['xpts']) else "N/A",
+      f"{top_xpts['xpts']:.1f} xPts",
   )
-  kpi3.metric("Latest Snapshot", f"{latest_date}")
+  k3.metric("Latest Snapshot", f"{latest_date}")
 
 st.markdown("---")
 
-# Sidebar Filters
-st.sidebar.header("Dashboard Controls")
+# Sidebar Controls
 all_teams = sorted(df["team"].dropna().unique())
+st.sidebar.header("Dashboard Controls")
+
 selected_teams = st.sidebar.multiselect(
-    "Filter Teams:", all_teams, default=all_teams
+    "Highlight Teams:", all_teams, default=["Swansea"]
 )
 
-if not selected_teams:
-  selected_teams = all_teams
-
-filtered_df = df[df["team"].isin(selected_teams)]
+show_background = st.sidebar.checkbox("Show rest of league in background", value=True)
 
 
-# Chart Builder
-def create_chart(
-    df_data, y_col, title, invert_y=False, is_percent=False, add_thresholds=False
+def create_context_chart(
+    full_df,
+    selected_list,
+    y_col,
+    title,
+    y_range=None,
+    invert_y=False,
+    is_percent=False,
+    add_thresholds=False,
 ):
-  fig = px.line(
-      df_data,
-      x="date",
-      y=y_col,
-      color="team",
-      color_discrete_map=TEAM_COLORS,
-      line_shape="spline",
-      title=f"<b>{title}</b>",
-      labels={"date": "Matchday Date", y_col: title, "team": "Club"},
-  )
+  fig = go.Figure()
 
-  fig.update_traces(line=dict(width=2.5), hovertemplate="%{y}")
+  # Draw background faint gray lines for non-selected teams
+  if show_background:
+    unselected_df = full_df[~full_df["team"].isin(selected_list)]
+    for team, group in unselected_df.groupby("team"):
+      fig.add_trace(
+          go.Scatter(
+              x=group["date"],
+              y=group[y_col],
+              mode="lines",
+              line=dict(color="#CBD5E1", width=1),
+              opacity=0.35,
+              hoverinfo="skip",
+              showlegend=False,
+          )
+      )
 
+  # Draw bold highlighted lines for selected teams
+  highlight_df = full_df[full_df["team"].isin(selected_list)]
+  for team in selected_list:
+    team_data = highlight_df[highlight_df["team"] == team]
+    if not team_data.empty:
+      color = TEAM_COLORS.get(team, "#1E293B")
+      fig.add_trace(
+          go.Scatter(
+              x=team_data["date"],
+              y=team_data[y_col],
+              mode="lines+markers",
+              name=team,
+              line=dict(color=color, width=3, shape="spline"),
+              marker=dict(size=6),
+              hovertemplate=f"<b>{team}</b>: %{{y}}<extra></extra>",
+          )
+      )
+
+  # Configure Layout & Axis Range Constraints
   fig.update_layout(
       height=360,
-      margin=dict(l=20, r=20, t=50, b=20),
-      showlegend=False,
+      margin=dict(l=25, r=25, t=50, b=25),
+      title=f"<b>{title}</b>",
+      showlegend=True if len(selected_list) > 1 else False,
+      legend=dict(
+          orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+      ),
       hovermode="x unified",
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(248,249,250,0.8)",
-      font=dict(family="Arial, sans-serif", size=12),
-      title_font=dict(size=15),
+      font=dict(family="Arial, sans-serif", size=11),
   )
 
+  # Fixed Y-Axis limits to preserve scale context
+  if y_range:
+    fig.update_yaxes(range=y_range)
+
   if invert_y:
-    fig.update_yaxes(autorange="reversed", dtick=2, range=[24.5, 0.5])
+    fig.update_yaxes(autorange="reversed", dtick=2)
+
+  if is_percent:
+    fig.update_yaxes(tickformat=".0%")
 
   if add_thresholds:
     fig.add_hline(
         y=2.5,
         line_dash="dot",
         line_color="green",
-        annotation_text="Auto Promotion (2nd)",
+        annotation_text="Auto Promo (2nd)",
+        annotation_position="top right",
     )
     fig.add_hline(
-        y=6.5, line_dash="dot", line_color="blue", annotation_text="Play-offs (6th)"
+        y=6.5,
+        line_dash="dot",
+        line_color="blue",
+        annotation_text="Play-offs (6th)",
+        annotation_position="top right",
     )
     fig.add_hline(
-        y=21.5, line_dash="dot", line_color="red", annotation_text="Relegation (22nd)"
+        y=21.5,
+        line_dash="dot",
+        line_color="red",
+        annotation_text="Relegation (22nd)",
+        annotation_position="top right",
     )
-
-  if is_percent:
-    fig.update_yaxes(tickformat=".1p")
 
   return fig
 
 
-# 3x2 Visual Grid
+# Render 3x2 Grid with Strict Range Constraints
 col1, col2, col3 = st.columns(3)
 col4, col5, col6 = st.columns(3)
 
 with col1:
   st.plotly_chart(
-      create_chart(
-          filtered_df,
+      create_context_chart(
+          df,
+          selected_teams,
           "xpos",
           "Expected Position",
+          y_range=[24.5, 0.5],
           invert_y=True,
           add_thresholds=True,
       ),
@@ -196,36 +239,64 @@ with col1:
 
 with col2:
   st.plotly_chart(
-      create_chart(filtered_df, "xpts", "Expected Points (xPts)"),
+      create_context_chart(
+          df,
+          selected_teams,
+          "xpts",
+          "Expected Points (xPts)",
+          y_range=[30, 90],
+      ),
       use_container_width=True,
   )
 
 with col3:
   st.plotly_chart(
-      create_chart(filtered_df, "Title", "Title Win Probability", is_percent=True),
+      create_context_chart(
+          df,
+          selected_teams,
+          "Title",
+          "Title Win Probability",
+          y_range=[-0.02, 1.02],
+          is_percent=True,
+      ),
       use_container_width=True,
   )
 
 with col4:
   st.plotly_chart(
-      create_chart(
-          filtered_df, "Promotion", "Automatic Promotion %", is_percent=True
+      create_context_chart(
+          df,
+          selected_teams,
+          "Promotion",
+          "Automatic Promotion %",
+          y_range=[-0.02, 1.02],
+          is_percent=True,
       ),
       use_container_width=True,
   )
 
 with col5:
   st.plotly_chart(
-      create_chart(
-          filtered_df, "Promotion P/O", "Play-off Probability %", is_percent=True
+      create_context_chart(
+          df,
+          selected_teams,
+          "Promotion P/O",
+          "Play-off Probability %",
+          y_range=[-0.02, 1.02],
+          is_percent=True,
       ),
       use_container_width=True,
   )
 
 with col6:
   st.plotly_chart(
-      create_chart(
-          filtered_df, "REL", "Relegation Probability %", is_percent=True
+      create_context_chart(
+          df,
+          selected_teams,
+          "REL",
+          "Relegation Probability %",
+          y_range=[-0.02, 1.02],
+          is_percent=True,
       ),
       use_container_width=True,
   )

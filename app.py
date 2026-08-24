@@ -461,3 +461,50 @@ with col6:
       ),
       use_container_width=True,
   )
+
+# --- NEW SECTION: Interactive Standings Table ---
+st.markdown("---")
+
+t_col1, t_col2 = st.columns([3, 1])
+with t_col1:
+  st.subheader("📋 Opta Predicted Standings Table")
+with t_col2:
+  selected_table_date = st.selectbox(
+      "Snapshot Date:",
+      options=list(reversed(unique_dates)),
+      index=0,
+  )
+
+table_df = (
+    df[df["date"] == selected_table_date]
+    .sort_values(by="xpos")
+    .reset_index(drop=True)
+)
+
+if not table_df.empty:
+  # Prepare clean formatted display dataframe
+  display_df = pd.DataFrame()
+  display_df["xPos"] = table_df["xpos"].astype(int)
+  display_df["Team"] = table_df["team"]
+  display_df["xPts"] = table_df["xpts"].map(
+      lambda x: f"{x:.1f}" if pd.notnull(x) else ""
+  )
+  display_df["Title %"] = table_df["Title"].map(
+      lambda x: f"{x*100:.1f}%" if pd.notnull(x) else ""
+  )
+  display_df["Auto Promo %"] = table_df["Promotion"].map(
+      lambda x: f"{x*100:.1f}%" if pd.notnull(x) else ""
+  )
+  display_df["Play-off %"] = table_df["Promotion P/O"].map(
+      lambda x: f"{x*100:.1f}%" if pd.notnull(x) else ""
+  )
+  display_df["Relegation %"] = table_df["REL"].map(
+      lambda x: f"{x*100:.1f}%" if pd.notnull(x) else ""
+  )
+
+  st.dataframe(
+      display_df,
+      use_container_width=True,
+      hide_index=True,
+      height=500,
+  )

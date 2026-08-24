@@ -286,15 +286,23 @@ def create_context_chart(
 
   show_legend_flag = 1 < len(selected_list) <= 6
 
+  # Dynamic top margin: Expand top padding to 75px if multi-line legend is active
+  top_margin = 75 if show_legend_flag and len(selected_list) > 3 else (50 if show_legend_flag else 35)
+
   fig.update_layout(
-      height=380,
-      margin=dict(l=30, r=25, t=50 if show_legend_flag else 35, b=25),
-      title=f"<b>{title}</b>",
+      height=390,
+      margin=dict(l=30, r=25, t=top_margin, b=25),
+      title=dict(
+          text=f"<b>{title}</b>",
+          y=0.98 if show_legend_flag else 0.95,
+          x=0,
+          xanchor="left",
+      ),
       showlegend=show_legend_flag,
       legend=dict(
           orientation="h",
           yanchor="bottom",
-          y=1.02,
+          y=1.04,
           xanchor="right",
           x=1,
           font=dict(size=10),
@@ -309,7 +317,6 @@ def create_context_chart(
     fig.update_yaxes(range=y_range)
 
   if invert_y:
-    # Set explicit tick values [1, 4, 8, 12, 16, 20, 24] to avoid 25 completely
     fig.update_yaxes(
         autorange="reversed",
         range=[24.5, 0.5],
@@ -432,4 +439,3 @@ with col6:
       ),
       use_container_width=True,
   )
-

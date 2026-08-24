@@ -10,18 +10,34 @@ st.set_page_config(
     layout="wide",
 )
 
-# Custom CSS to shrink metric values so team names fit without truncating
+# Custom CSS for multi-line KPI cards
 st.markdown(
     """
     <style>
-    div[data-testid="stMetricValue"] {
-        font-size: 16px !important;
-        font-weight: 600 !important;
-        line-height: 1.3 !important;
+    .kpi-card {
+        background-color: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
+        padding: 12px 16px;
+        min-height: 110px;
     }
-    div[data-testid="stMetricLabel"] {
-        font-size: 13px !important;
-        color: #475569 !important;
+    .kpi-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 6px;
+    }
+    .kpi-body {
+        font-size: 15px;
+        font-weight: 600;
+        color: #0F172A;
+        line-height: 1.4;
+    }
+    .kpi-sub {
+        font-size: 12px;
+        color: #16A34A;
+        font-weight: 500;
+        margin-top: 4px;
     }
     </style>
 """,
@@ -108,7 +124,7 @@ unique_dates = df["date"].dropna().unique()
 latest_date = unique_dates[-1] if len(unique_dates) > 0 else "N/A"
 prev_date = unique_dates[-2] if len(unique_dates) > 1 else None
 
-# Header Section with small date timestamp
+# Header Section
 st.title("⚽ EFL Championship Trajectories")
 st.caption(
     f"Opta Expected Metrics & Season Outcome Probabilities  |  **Last"
@@ -117,15 +133,22 @@ st.caption(
 
 latest_df = df[df["date"] == latest_date].sort_values(by="xpos")
 
-# Calculate KPI Groups
+# Calculate KPI Groups with clean 2-line stacking
 if not latest_df.empty:
   auto_promo_teams = ", ".join(latest_df.iloc[0:2]["team"].tolist())
-  playoff_teams = ", ".join(latest_df.iloc[2:6]["team"].tolist())
+
+  # Play-offs extended to 3rd through 8th (6 teams total, split onto 2 lines)
+  po_list = latest_df.iloc[2:8]["team"].tolist()
+  playoff_teams_html = (
+      f"{', '.join(po_list[:3])}<br><span style='color:#64748B;'>"
+      f" {', '.join(po_list[3:])}</span>"
+  )
+
   relegation_teams = ", ".join(latest_df.iloc[-3:]["team"].tolist())
 
   # Calculate Biggest Mover
   mover_text = "N/A"
-  mover_delta = 0
+  mover_delta_str = "Baseline"
   if prev_date:
     prev_df = df[df["date"] == prev_date][["team", "xpos"]].rename(
         columns={"xpos": "prev_xpos"}
@@ -135,25 +158,57 @@ if not latest_df.empty:
     top_mover = merged.sort_values(by="pos_change", ascending=False).iloc[0]
     mover_delta = int(top_mover["pos_change"])
     if mover_delta > 0:
-      mover_text = f"{top_mover['team']} (+{mover_delta} places)"
+      mover_text = f"{top_mover['team']}"
+      mover_delta_str = f"↑ +{mover_delta} places"
     elif mover_delta < 0:
-      mover_text = f"{top_mover['team']} ({mover_delta} places)"
+      mover_text = f"{top_mover['team']}"
+      mover_delta_str = f"↓ {mover_delta} places"
     else:
-      mover_text = "No change across league"
+      mover_text = "No change"
   else:
     top_xpts = latest_df.sort_values(by="xpts", ascending=False).iloc[0]
-    mover_text = f"{top_xpts['team']} ({top_xpts['xpts']:.1f} xPts)"
+    mover_text = f"{top_xpts['team']}"
+    mover_delta_str = f"{top_xpts['xpts']:.1f} xPts"
 
-  # Render 4 KPI Columns
+  # Render Custom Stacked Cards
   k1, k2, k3, k4 = st.columns(4)
-  k1.metric("Auto Promotion (1st & 2nd)", auto_promo_teams)
-  k2.metric("Play-off Spots (3rd - 6th)", playoff_teams)
-  k3.metric("Relegation Zone (22nd - 24th)", relegation_teams)
-  k4.metric(
-      "Biggest Mover (Last Update)",
-      mover_text,
-      f"{mover_delta} places" if prev_date else "Baseline",
-  )
+
+  with k1:
+    st.markdown(
+        f"""<div class="kpi-card">
+            <div class="kpi-title">Auto Promotion (1st & 2nd)</div>
+            <div class="kpi-body">{auto_promo_teams}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+  with k2:
+    st.markdown(
+        f"""<div class="kpi-card">
+            <div class="kpi-title">Play-off Spots (3rd - 8th)</div>
+            <div class="kpi-body">{playoff_teams_html}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+  with k3:
+    st.markdown(
+        f"""<div class="kpi-card">
+            <div class="kpi-title">Relegation Zone (22nd - 24th)</div>
+            <div class="kpi-body">{relegation_teams}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+  with k4:
+    st.markdown(
+        f"""<div class="kpi-card">
+            <div class="kpi-title">Biggest Mover (Last Update)</div>
+            <div class="kpi-body">{mover_text}</div>
+            <div class="kpi-sub">{mover_delta_str}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 
@@ -260,11 +315,12 @@ def create_context_chart(
         annotation_text="Auto Promo (2nd)",
         annotation_position="top right",
     )
+    # Updated play-off marker line to 8th position threshold
     fig.add_hline(
-        y=6.5,
+        y=8.5,
         line_dash="dot",
         line_color="blue",
-        annotation_text="Play-offs (6th)",
+        annotation_text="Play-offs (8th)",
         annotation_position="top right",
     )
     fig.add_hline(
@@ -278,7 +334,6 @@ def create_context_chart(
   return fig
 
 
-# Smart Max Calculations
 title_max = get_smart_percent_max(df["Title"])
 promo_max = get_smart_percent_max(df["Promotion"])
 po_max = get_smart_percent_max(df["Promotion P/O"])

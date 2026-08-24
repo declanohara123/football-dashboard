@@ -9,10 +9,8 @@ st.set_page_config(
 )
 st.title("⚽ Championship Season Progression Dashboard")
 
-# Determine base directory dynamically
+# Find base folder dynamically
 BASE_DIR = Path(__file__).resolve().parent
-
-# Check common file locations (root vs data subfolder)
 possible_paths = [
     BASE_DIR / "data" / "expected_positions.csv",
     BASE_DIR / "expected_positions.csv",
@@ -28,51 +26,63 @@ for p in possible_paths:
 @st.cache_data(ttl=60)
 def load_data():
   if DATA_PATH is None:
-    st.error(
-        "Could not find `expected_positions.csv`. Please check your repository"
-        " file structure."
-    )
-    st.stop()
+    return pd.DataFrame()
 
   try:
     data = pd.read_csv(DATA_PATH)
     if len(data.columns) <= 1:
       data = pd.read_csv(DATA_PATH, sep="\t")
-  except Exception:
-    data = pd.read_csv(DATA_PATH, sep="\t")
+  except Exception as e:
+    st.error(f"Error reading CSV: {e}")
+    return pd.DataFrame()
 
-  # Clean spaces from column names and text fields
+  # Clean whitespace from column names and team values
   data.columns = data.columns.str.strip()
-  data["team"] = data["team"].astype(str).str.strip()
+  if "team" in data.columns:
+    data["team"] = data["team"].astype(str).str.strip()
 
-  # Clean percentage strings to numeric decimals
+  # Safely convert percentage strings (e.g., '17.80%' -> 0.178)
   pct_cols = ["Title", "Promotion", "Promotion P/O", "REL"]
   for col in pct_cols:
     if col in data.columns:
       data[col] = (
           data[col]
           .astype(str)
-          .str.rstrip("%")
-          .astype("float", errors="ignore")
-          / 100.0
+          .str.replace("%", "", regex=False)
+          .str.strip()
       )
+      data[col] = pd.to_numeric(data[col], errors="coerce") / 100.0
 
-  # Numeric position & points
-  data["xpos"] = pd.to_numeric(data["xpos"], errors="coerce")
-  data["xpts"] = pd.to_numeric(data["xpts"], errors="coerce")
+  # Ensure position and points are numbers
+  if "xpos" in data.columns:
+    data["xpos"] = pd.to_numeric(data["xpos"], errors="coerce")
+  if "xpts" in data.columns:
+    data["xpts"] = pd.to_numeric(data["xpts"], errors="coerce")
 
-  # Parse dates and sort chronologically
-  data["date_dt"] = pd.to_datetime(data["date"], format="%d-%b-%y")
-  data = data.sort_values(by="date_dt")
+  # Parse dates cleanly
+  if "date" in data.columns:
+    data["date_dt"] = pd.to_datetime(
+        data["date"], format="%d-%b-%y", errors="coerce"
+    )
+    data = data.sort_values(by="date_dt")
 
   return data
 
 
 df = load_data()
 
+# Fail-safe check if data failed to load
+if df.empty or "team" not in df.columns:
+  st.error(
+      "⚠️ `expected_positions.csv` was found but contains no data or incorrect"
+      " columns."
+  )
+  st.write("Current working directory path:", str(DATA_PATH))
+  st.stop()
+
 # Sidebar Filters
 st.sidebar.header("Filter Options")
-all_teams = sorted(df["team"].unique())
+all_teams = sorted(df["team"].dropna().unique())
 selected_teams = st.sidebar.multiselect(
     "Select Teams (Default: All Teams):", all_teams, default=all_teams
 )

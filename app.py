@@ -10,7 +10,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# Custom CSS for multi-line KPI cards
 st.markdown(
     """
     <style>
@@ -140,10 +139,9 @@ latest_df = df[df["date"] == latest_date].sort_values(by="xpos")
 if not latest_df.empty:
   auto_promo_teams = ", ".join(latest_df.iloc[0:2]["team"].tolist())
 
-  # Split Play-offs: Line 1 = 3rd & 4th place (Primary style), Line 2 = 5th to 8th place (Sub-tier style)
   po_list = latest_df.iloc[2:8]["team"].tolist()
-  po_line1 = ", ".join(po_list[:2])  # 3rd and 4th
-  po_line2 = ", ".join(po_list[2:])  # 5th, 6th, 7th, 8th
+  po_line1 = ", ".join(po_list[:2])
+  po_line2 = ", ".join(po_list[2:])
 
   playoff_teams_html = (
       f"<div>{po_line1}</div><div class='kpi-body-sub'>{po_line2}</div>"
@@ -286,14 +284,12 @@ def create_context_chart(
           )
       )
 
+  # Layout - showlegend disabled to prevent 24-team legend block from squashing charts
   fig.update_layout(
-      height=360,
-      margin=dict(l=25, r=25, t=50, b=25),
+      height=380,
+      margin=dict(l=30, r=25, t=40, b=25),
       title=f"<b>{title}</b>",
-      showlegend=True if len(selected_list) > 1 else False,
-      legend=dict(
-          orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
-      ),
+      showlegend=False,
       hovermode="x unified",
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(248,249,250,0.8)",
@@ -304,7 +300,14 @@ def create_context_chart(
     fig.update_yaxes(range=y_range)
 
   if invert_y:
-    fig.update_yaxes(autorange="reversed", tick0=1, dtick=2)
+    # Explicit position axis limits from 24 up to 1 (dtick=2, tick0=1 prevents -1 or 0 values)
+    fig.update_yaxes(
+        autorange="reversed",
+        range=[24.5, 0.5],
+        tick0=1,
+        dtick=2,
+        tickmode="linear",
+    )
 
   if is_percent:
     fig.update_yaxes(tickformat=".0%", dtick=0.05 if y_range[1] <= 0.3 else 0.10)
@@ -351,7 +354,6 @@ with col1:
           selected_teams,
           "xpos",
           "Expected Position",
-          y_range=[24.5, 0.8],
           invert_y=True,
           add_thresholds=True,
       ),

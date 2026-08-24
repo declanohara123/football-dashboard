@@ -85,31 +85,63 @@ if df.empty or "team" not in df.columns:
   st.error("⚠️ Unable to load dataset.")
   st.stop()
 
+# Dates & Snapshots
+unique_dates = df["date"].dropna().unique()
+latest_date = unique_dates[-1] if len(unique_dates) > 0 else "N/A"
+prev_date = unique_dates[-2] if len(unique_dates) > 1 else None
+
+# Header Section with small date timestamp
 st.title("⚽ EFL Championship Trajectories")
-st.caption("Opta Expected Metrics & Season Outcome Probabilities")
+st.caption(
+    f"Opta Expected Metrics & Season Outcome Probabilities  |  **Last"
+    f" Updated:** {latest_date}"
+)
 
-latest_date = df["date"].dropna().iloc[-1] if not df["date"].dropna().empty else "N/A"
-latest_df = df[df["date"] == latest_date]
+latest_df = df[df["date"] == latest_date].sort_values(by="xpos")
 
-if not latest_df.empty and "Title" in latest_df.columns:
-  top_title = latest_df.sort_values(by="Title", ascending=False).iloc[0]
-  top_xpts = latest_df.sort_values(by="xpts", ascending=False).iloc[0]
+# Calculate KPI Groups
+if not latest_df.empty:
+  auto_promo_teams = ", ".join(latest_df.iloc[0:2]["team"].tolist())
+  playoff_teams = ", ".join(latest_df.iloc[2:6]["team"].tolist())
+  relegation_teams = ", ".join(latest_df.iloc[-3:]["team"].tolist())
 
-  k1, k2, k3 = st.columns(3)
-  k1.metric(
-      "Title Favorite",
-      f"{top_title['team']}",
-      f"{top_title['Title']*100:.1f}% Prob",
+  # Calculate Biggest Mover
+  mover_text = "N/A"
+  mover_delta = 0
+  if prev_date:
+    prev_df = df[df["date"] == prev_date][["team", "xpos"]].rename(
+        columns={"xpos": "prev_xpos"}
+    )
+    merged = pd.merge(latest_df, prev_df, on="team")
+    merged["pos_change"] = (
+        merged["prev_xpos"] - merged["xpos"]
+    )  # Positive = improved position
+    top_mover = merged.sort_values(by="pos_change", ascending=False).iloc[0]
+    mover_delta = int(top_mover["pos_change"])
+    if mover_delta > 0:
+      mover_text = f"{top_mover['team']} (+{mover_delta} places)"
+    elif mover_delta < 0:
+      mover_text = f"{top_mover['team']} ({mover_delta} places)"
+    else:
+      mover_text = "No change across league"
+  else:
+    top_xpts = latest_df.sort_values(by="xpts", ascending=False).iloc[0]
+    mover_text = f"{top_xpts['team']} ({top_xpts['xpts']:.1f} xPts)"
+
+  # Render 4 KPI Columns
+  k1, k2, k3, k4 = st.columns(4)
+  k1.metric("Auto Promotion (1st & 2nd)", auto_promo_teams)
+  k2.metric("Play-off Spots (3rd - 6th)", playoff_teams)
+  k3.metric("Relegation Zone (22nd - 24th)", relegation_teams)
+  k4.metric(
+      "Biggest Mover (Last Update)",
+      mover_text,
+      f"{mover_delta} places" if prev_date else "Baseline",
   )
-  k2.metric(
-      "Expected Points Leader",
-      f"{top_xpts['team']}",
-      f"{top_xpts['xpts']:.1f} xPts",
-  )
-  k3.metric("Latest Snapshot", f"{latest_date}")
 
 st.markdown("---")
 
+# Sidebar Controls
 all_teams = sorted(df["team"].dropna().unique())
 st.sidebar.header("Dashboard Controls")
 
@@ -122,17 +154,14 @@ show_background = st.sidebar.checkbox(
 
 
 def get_smart_percent_max(data_series):
-  """Calculates the max value across the dataset and rounds up to the next 10% step (min 10%)."""
   max_val = data_series.dropna().max()
   if pd.isna(max_val) or max_val <= 0:
     return 0.10
-  # Ceil to nearest 0.10, adding a slight buffer
   smart_max = math.ceil(max_val * 10) / 10.0
   return min(1.0, max(0.10, smart_max + 0.02))
 
 
 def get_smart_pts_range(data_series):
-  """Dynamic range for xPts focused around active data boundaries."""
   min_val = data_series.dropna().min()
   max_val = data_series.dropna().max()
   if pd.isna(min_val):
@@ -202,7 +231,8 @@ def create_context_chart(
     fig.update_yaxes(range=y_range)
 
   if invert_y:
-    fig.update_yaxes(autorange="reversed", dtick=2)
+    # Scale from 24 down to 1 explicitly (eliminates 0 tick)
+    fig.update_yaxes(autorange="reversed", tick0=1, dtick=2)
 
   if is_percent:
     fig.update_yaxes(tickformat=".0%", dtick=0.05 if y_range[1] <= 0.3 else 0.10)
@@ -233,7 +263,7 @@ def create_context_chart(
   return fig
 
 
-# Pre-calculate smart dynamic maxes across entire league dataset
+# Smart Max Calculations
 title_max = get_smart_percent_max(df["Title"])
 promo_max = get_smart_percent_max(df["Promotion"])
 po_max = get_smart_percent_max(df["Promotion P/O"])
@@ -250,7 +280,7 @@ with col1:
           selected_teams,
           "xpos",
           "Expected Position",
-          y_range=[24.5, 0.5],
+          y_range=[24.5, 0.8],
           invert_y=True,
           add_thresholds=True,
       ),

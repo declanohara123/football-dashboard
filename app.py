@@ -29,8 +29,14 @@ st.markdown(
     }
     .kpi-body {
         font-size: 15px;
-        font-weight: 600;
+        font-weight: 700;
         color: #0F172A;
+        line-height: 1.4;
+    }
+    .kpi-body-sub {
+        font-size: 14px;
+        font-weight: 600;
+        color: #475569;
         line-height: 1.4;
     }
     .kpi-sub {
@@ -119,12 +125,10 @@ if df.empty or "team" not in df.columns:
   st.error("⚠️ Unable to load dataset.")
   st.stop()
 
-# Dates & Snapshots
 unique_dates = df["date"].dropna().unique()
 latest_date = unique_dates[-1] if len(unique_dates) > 0 else "N/A"
 prev_date = unique_dates[-2] if len(unique_dates) > 1 else None
 
-# Header Section
 st.title("⚽ EFL Championship Trajectories")
 st.caption(
     f"Opta Expected Metrics & Season Outcome Probabilities  |  **Last"
@@ -133,20 +137,20 @@ st.caption(
 
 latest_df = df[df["date"] == latest_date].sort_values(by="xpos")
 
-# Calculate KPI Groups with clean 2-line stacking
 if not latest_df.empty:
   auto_promo_teams = ", ".join(latest_df.iloc[0:2]["team"].tolist())
 
-  # Play-offs extended to 3rd through 8th (6 teams total, split onto 2 lines)
+  # Split Play-offs: Line 1 = 3rd & 4th place (Primary style), Line 2 = 5th to 8th place (Sub-tier style)
   po_list = latest_df.iloc[2:8]["team"].tolist()
+  po_line1 = ", ".join(po_list[:2])  # 3rd and 4th
+  po_line2 = ", ".join(po_list[2:])  # 5th, 6th, 7th, 8th
+
   playoff_teams_html = (
-      f"{', '.join(po_list[:3])}<br><span style='color:#64748B;'>"
-      f" {', '.join(po_list[3:])}</span>"
+      f"<div>{po_line1}</div><div class='kpi-body-sub'>{po_line2}</div>"
   )
 
   relegation_teams = ", ".join(latest_df.iloc[-3:]["team"].tolist())
 
-  # Calculate Biggest Mover
   mover_text = "N/A"
   mover_delta_str = "Baseline"
   if prev_date:
@@ -170,7 +174,6 @@ if not latest_df.empty:
     mover_text = f"{top_xpts['team']}"
     mover_delta_str = f"{top_xpts['xpts']:.1f} xPts"
 
-  # Render Custom Stacked Cards
   k1, k2, k3, k4 = st.columns(4)
 
   with k1:
@@ -212,7 +215,6 @@ if not latest_df.empty:
 
 st.markdown("---")
 
-# Sidebar Controls
 all_teams = sorted(df["team"].dropna().unique())
 st.sidebar.header("Dashboard Controls")
 
@@ -315,7 +317,6 @@ def create_context_chart(
         annotation_text="Auto Promo (2nd)",
         annotation_position="top right",
     )
-    # Updated play-off marker line to 8th position threshold
     fig.add_hline(
         y=8.5,
         line_dash="dot",

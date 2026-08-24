@@ -2,9 +2,9 @@ name: Daily Football Data Auto-Update
 
 on:
   schedule:
-    # Runs every day at 09:00 UTC (09:00 AM)
+    # Runs every morning at 09:00 UTC
     - cron: '0 9 * * *'
-  workflow_dispatch: # Allows you to manually trigger the update from GitHub anytime
+  workflow_dispatch:
 
 jobs:
   update-dataset:
@@ -19,18 +19,20 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install Dependencies & Playwright Browser
         run: |
           python -m pip install --upgrade pip
-          pip install pandas requests beautifulsoup4
+          pip install pandas requests beautifulsoup4 lxml html5lib playwright
+          playwright install chromium
+          playwright install-deps chromium
 
-      - name: Run Scraper Script
+      - name: Run Playwright Scraper
         run: python scraper.py
 
-      - name: Commit and Push Changes to GitHub
+      - name: Commit and Push Updated CSV to GitHub
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/expected_positions.csv
-          git commit -m "Auto-update matchday metrics [skip ci]" || exit 0
+          git commit -m "Auto-update Championship metrics from Opta [skip ci]" || exit 0
           git push

@@ -1,104 +1,92 @@
-
 from datetime import datetime
-import json
+from io import StringIO
 from pathlib import Path
-import re
 import pandas as pd
-import requests
+from playwright.sync_api import sync_playwright
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "expected_positions.csv"
 
 
-def scrape_the_analyst_table():
-  """Scrapes the Championship predicted table probabilities from Opta/The Analyst."""
+def scrape_predicted_table():
+  """Uses Playwright to click the 'PREDICTED' tab on The Analyst and grab Opta metrics."""
   url = "https://theanalyst.com/competition/english-championship/table"
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      )
-  }
-
-  response = requests.get(url, headers=headers)
-  if response.status_code != 200:
-    raise RuntimeError(
-        f"Failed to load The Analyst page. Status: {response.status_code}"
-    )
-
-  html = response.text
   today_str = datetime.now().strftime("%d-%b-%y")
 
-  # Search for Opta's embedded JSON state data within script tags
-  json_match = re.search(
-      r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html
-  )
+  with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True)
+    page = browser.new_page()
 
-  extracted_rows = []
+    page.goto(url, wait_until="networkidle")
+    page.click("text=PREDICTED")
+    page.wait_for_timeout(2500)
 
-  if json_match:
-    payload = json.loads(json_match.group(1))
-    # Traverse Next.js props to find the predicted table dataset
-    try:
-      page_props = payload.get("props", {}).get("pageProps", {})
-      table_data = (
-          page_props.get("tableData", [])
-          or page_props.get("predictionTable", [])
-          or page_props.get("standings", [])
-      )
+    content = page.content()
+    browser.close()
 
-      for item in table_data:
-        extracted_rows.append({
-            "xpos": item.get("rank") or item.get("position"),
-            "team": item.get("teamName") or item.get("team", {}).get("name"),
-            "xpts": item.get("pts") or item.get("expectedPoints"),
-            "Title": f"{item.get('titleProb', 0):.2f}%",
-            "Promotion": f"{item.get('promoProb', 0):.2f}%",
-            "Promotion P/O": f"{item.get('playoffProb', 0):.2f}%",
-            "REL": f"{item.get('relegationProb', 0):.2f}%",
-            "date": today_str,
-        })
-    except Exception as e:
-      print(f"JSON parsing notice: {e}")
+  tables = pd.read_html(StringIO(content))
 
-  # Fallback: Parse via Pandas HTML reader if script tag parsing varies
-  if not extracted_rows:
-    dfs = pd.read_html(html)
-    for df_table in dfs:
-      if "Team" in df_table.columns or "team" in df_table.columns:
-        df_table.columns = df_table.columns.str.strip()
-        df_table["date"] = today_str
-        return df_table
+  target_df = None
+  for df in tables:
+    df.columns = [str(c).strip() for c in df.columns]
+    if any(k in df.columns for k in ["XPOS", "xpos", "XPTS", "xpts", "Title"]):
+      target_df = df
+      break
 
-  df_out = pd.DataFrame(extracted_rows)
-  return df_out
+  if target_df is None and tables:
+    target_df = tables[0]
+
+  if target_df is not None:
+    # Standardise column names
+    col_map = {
+        "XPOS": "xpos",
+        "TEAM": "team",
+        "XPTS": "xpts",
+        "TITLE": "Title",
+        "PROMOTION": "Promotion",
+        "PROMOTION P/O": "Promotion P/O",
+        "RELEGATION": "REL",
+    }
+    target_df = target_df.rename(
+        columns={
+            c: col_map[c]
+            for c in target_df.columns
+            if c in col_map or c.upper() in col_map
+        }
+    )
+    target_df["date"] = today_str
+
+  return target_df
 
 
 def main():
-  try:
-    today_str = datetime.now().strftime("%d-%b-%y")
+  today_str = datetime.now().strftime("%d-%b-%y")
 
-    # Avoid duplicate scrapes for the same date
-    if DATA_PATH.exists():
+  # Avoid duplicate entries for the same day
+  if DATA_PATH.exists():
+    try:
       existing = pd.read_csv(DATA_PATH)
       if (
           "date" in existing.columns
           and today_str in existing["date"].astype(str).values
       ):
-        print(f"Data for {today_str} already recorded. Exiting scraper.")
+        print(
+            f"Data for {today_str} already recorded in CSV. Exiting scraper."
+        )
         return
+    except Exception as e:
+      print(f"Notice reading existing file: {e}")
 
-    new_data = scrape_the_analyst_table()
-
-    if not new_data.empty:
+  try:
+    df = scrape_predicted_table()
+    if df is not None and not df.empty:
       file_exists = DATA_PATH.exists()
-      new_data.to_csv(DATA_PATH, mode="a", index=False, header=not file_exists)
-      print(f"Successfully scraped and appended data for {today_str}")
+      df.to_csv(DATA_PATH, mode="a", index=False, header=not file_exists)
+      print(f"Successfully scraped and appended 24 teams for {today_str}!")
     else:
-      print("Scraper ran but returned no new rows.")
-
-  except Exception as err:
-    print(f"Error executing scraper: {err}")
+      print("Scraper ran but returned an empty dataset.")
+  except Exception as e:
+    print(f"Scraper error: {e}")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,24 @@ st.set_page_config(
     layout="wide",
 )
 
+# Custom CSS to shrink metric values so team names fit without truncating
+st.markdown(
+    """
+    <style>
+    div[data-testid="stMetricValue"] {
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        line-height: 1.3 !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        font-size: 13px !important;
+        color: #475569 !important;
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
 TEAM_COLORS = {
     "West Ham": "#7A263A",
     "Millwall": "#002F6C",
@@ -113,9 +131,7 @@ if not latest_df.empty:
         columns={"xpos": "prev_xpos"}
     )
     merged = pd.merge(latest_df, prev_df, on="team")
-    merged["pos_change"] = (
-        merged["prev_xpos"] - merged["xpos"]
-    )  # Positive = improved position
+    merged["pos_change"] = merged["prev_xpos"] - merged["xpos"]
     top_mover = merged.sort_values(by="pos_change", ascending=False).iloc[0]
     mover_delta = int(top_mover["pos_change"])
     if mover_delta > 0:
@@ -231,7 +247,6 @@ def create_context_chart(
     fig.update_yaxes(range=y_range)
 
   if invert_y:
-    # Scale from 24 down to 1 explicitly (eliminates 0 tick)
     fig.update_yaxes(autorange="reversed", tick0=1, dtick=2)
 
   if is_percent:

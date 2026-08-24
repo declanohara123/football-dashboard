@@ -9,13 +9,31 @@ st.set_page_config(
 )
 st.title("⚽ Championship Season Progression Dashboard")
 
-# File Path
+# Determine base directory dynamically
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "data" / "expected_positions.csv"
+
+# Check common file locations (root vs data subfolder)
+possible_paths = [
+    BASE_DIR / "data" / "expected_positions.csv",
+    BASE_DIR / "expected_positions.csv",
+]
+
+DATA_PATH = None
+for p in possible_paths:
+  if p.exists():
+    DATA_PATH = p
+    break
 
 
 @st.cache_data(ttl=60)
 def load_data():
+  if DATA_PATH is None:
+    st.error(
+        "Could not find `expected_positions.csv`. Please check your repository"
+        " file structure."
+    )
+    st.stop()
+
   try:
     data = pd.read_csv(DATA_PATH)
     if len(data.columns) <= 1:
@@ -23,11 +41,11 @@ def load_data():
   except Exception:
     data = pd.read_csv(DATA_PATH, sep="\t")
 
-  # Clean spaces from columns and text
+  # Clean spaces from column names and text fields
   data.columns = data.columns.str.strip()
   data["team"] = data["team"].astype(str).str.strip()
 
-  # Clean percentage strings to numeric decimals (e.g., '17.80%' -> 0.178)
+  # Clean percentage strings to numeric decimals
   pct_cols = ["Title", "Promotion", "Promotion P/O", "REL"]
   for col in pct_cols:
     if col in data.columns:
@@ -39,7 +57,7 @@ def load_data():
           / 100.0
       )
 
-  # Numeric columns
+  # Numeric position & points
   data["xpos"] = pd.to_numeric(data["xpos"], errors="coerce")
   data["xpts"] = pd.to_numeric(data["xpts"], errors="coerce")
 
@@ -52,7 +70,7 @@ def load_data():
 
 df = load_data()
 
-# Team Selector in Sidebar
+# Sidebar Filters
 st.sidebar.header("Filter Options")
 all_teams = sorted(df["team"].unique())
 selected_teams = st.sidebar.multiselect(
@@ -65,7 +83,7 @@ if not selected_teams:
 filtered_df = df[df["team"].isin(selected_teams)]
 
 
-# Helper function to generate clean line plots for the grid
+# Chart Generator
 def create_metric_chart(
     df_data, y_col, title, invert_y=False, is_percent=False
 ):
@@ -74,20 +92,15 @@ def create_metric_chart(
       x="date",
       y=y_col,
       color="team",
-      line_shape="spline",  # Smooth curved lines matching your image
+      line_shape="spline",
       title=title,
-      labels={
-          "date": "Date",
-          y_col: title,
-          "team": "Team",
-      },
+      labels={"date": "Date", y_col: title, "team": "Team"},
   )
 
-  # Remove chart clutter to match sleek dashboard style
   fig.update_layout(
       height=350,
       margin=dict(l=20, r=20, t=40, b=20),
-      showlegend=False,  # Keep clean without 24 legend items per subchart
+      showlegend=False,
       hovermode="x unified",
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(245,245,245,0.5)",
@@ -102,7 +115,7 @@ def create_metric_chart(
   return fig
 
 
-# Build the 3x2 Grid Layout
+# Render 3x2 Grid
 row1_col1, row1_col2, row1_col3 = st.columns(3)
 row2_col1, row2_col2, row2_col3 = st.columns(3)
 

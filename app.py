@@ -222,6 +222,11 @@ selected_teams = st.sidebar.multiselect(
 show_background = st.sidebar.checkbox(
     "Show rest of league in background", value=True
 )
+hover_mode_option = st.sidebar.radio(
+    "Hover Tooltip Style:",
+    ["Single Line (Clean)", "Full List (Compare All)"],
+    index=0,
+)
 
 
 def get_smart_percent_max(data_series):
@@ -252,14 +257,11 @@ def create_context_chart(
 ):
   fig = go.Figure()
 
-  # Order traces explicitly so unified hover respects metric value order
   if invert_y:
-    # Position: sort 1 at the top down to 24
     ordered_teams = (
         full_df.groupby("team")[y_col].last().sort_values(ascending=True).index
     )
   else:
-    # Probabilities & Points: sort highest value at top down to lowest
     ordered_teams = (
         full_df.groupby("team")[y_col].last().sort_values(ascending=False).index
     )
@@ -306,6 +308,8 @@ def create_context_chart(
       else (50 if show_legend_flag else 35)
   )
 
+  is_unified = hover_mode_option == "Full List (Compare All)"
+
   fig.update_layout(
       height=390,
       margin=dict(l=30, r=25, t=top_margin, b=25),
@@ -324,8 +328,8 @@ def create_context_chart(
           x=1,
           font=dict(size=10),
       ),
-      hovermode="x unified",
-      hoverlabel=dict(namelength=-1),
+      hovermode="x unified" if is_unified else "closest",
+      hoverlabel=dict(namelength=-1, font_size=9 if is_unified else 12),
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(248,249,250,0.8)",
       font=dict(family="Arial, sans-serif", size=11),

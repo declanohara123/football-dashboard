@@ -83,39 +83,40 @@ def load_data():
 
 df = load_data()
 
-if df.empty:
-  st.error("⚠️ Unable to load dataset. Please check CSV file.")
+if df.empty or "team" not in df.columns:
+  st.error("⚠️ Unable to load dataset or CSV is improperly formatted.")
   st.stop()
 
 # Header Section
 st.title("⚽ EFL Championship Trajectories")
 st.caption("Opta Expected Metrics & Season Outcome Probabilities")
 
-# Top KPI Summary Cards
-latest_date = df["date"].iloc[-1]
+# Top KPI Summary Cards with Fail-Safe Logic
+latest_date = df["date"].dropna().iloc[-1] if not df["date"].dropna().empty else "N/A"
 latest_df = df[df["date"] == latest_date]
 
-top_title = latest_df.sort_values(by="Title", ascending=False).iloc[0]
-top_xpts = latest_df.sort_values(by="xpts", ascending=False).iloc[0]
+if not latest_df.empty and "Title" in latest_df.columns and "xpts" in latest_df.columns:
+  top_title = latest_df.sort_values(by="Title", ascending=False).iloc[0]
+  top_xpts = latest_df.sort_values(by="xpts", ascending=False).iloc[0]
 
-kpi1, kpi2, kpi3 = st.columns(3)
-kpi1.metric(
-    "Title Favorite",
-    f"{top_title['team']}",
-    f"{top_title['Title'] * 100:.1f}% Prob",
-)
-kpi2.metric(
-    "Expected Points Leader",
-    f"{top_xpts['team']}",
-    f"{top_xpts['xpts']:.1f} xPts",
-)
-kpi3.metric("Latest Snapshot", f"{latest_date}")
+  kpi1, kpi2, kpi3 = st.columns(3)
+  kpi1.metric(
+      "Title Favorite",
+      f"{top_title['team']}",
+      f"{top_title['Title'] * 100:.1f}% Prob" if pd.notnull(top_title['Title']) else "N/A",
+  )
+  kpi2.metric(
+      "Expected Points Leader",
+      f"{top_xpts['team']}",
+      f"{top_xpts['xpts']:.1f} xPts" if pd.notnull(top_xpts['xpts']) else "N/A",
+  )
+  kpi3.metric("Latest Snapshot", f"{latest_date}")
 
 st.markdown("---")
 
 # Sidebar Filters
 st.sidebar.header("Dashboard Controls")
-all_teams = sorted(df["team"].unique())
+all_teams = sorted(df["team"].dropna().unique())
 selected_teams = st.sidebar.multiselect(
     "Filter Teams:", all_teams, default=all_teams
 )
@@ -158,7 +159,6 @@ def create_chart(
     fig.update_yaxes(autorange="reversed", dtick=2, range=[24.5, 0.5])
 
   if add_thresholds:
-    # Add Promotion / Relegation threshold lines for expected position
     fig.add_hline(
         y=2.5,
         line_dash="dot",

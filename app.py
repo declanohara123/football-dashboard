@@ -5,43 +5,59 @@ import streamlit as st
 
 # Page Configuration
 st.set_page_config(
-    page_title="Championship Multi-Metric Dashboard", layout="wide"
+    page_title="Championship Analytics | Opta Trajectories",
+    page_icon="⚽",
+    layout="wide",
 )
-st.title("⚽ Championship Season Progression Dashboard")
 
-# Find base folder dynamically
+# Custom Championship Team Color Map
+TEAM_COLORS = {
+    "West Ham": "#7A263A",
+    "Millwall": "#002F6C",
+    "Wolves": "#FDB913",
+    "Middlesbrough": "#E00000",
+    "Southampton": "#D10022",
+    "West Brom": "#00175A",
+    "Burnley": "#6C1D45",
+    "Sheff Utd": "#EE2737",
+    "Swansea": "#111111",
+    "Wrexham": "#E30613",
+    "Birmingham": "#0000FF",
+    "Norwich": "#FFF200",
+    "Derby": "#231F20",
+    "Blackburn": "#009EE0",
+    "Portsmouth": "#001489",
+    "QPR": "#0054A6",
+    "Charlton": "#D4001A",
+    "Watford": "#FBEE23",
+    "Bolton": "#1B2A4A",
+    "Cardiff": "#0070B8",
+    "Bristol C": "#E21B23",
+    "Lincoln": "#E31B23",
+    "Preston": "#FFFFFF",
+    "Stoke": "#E03A3E",
+}
+
 BASE_DIR = Path(__file__).resolve().parent
-possible_paths = [
-    BASE_DIR / "data" / "expected_positions.csv",
-    BASE_DIR / "expected_positions.csv",
-]
-
-DATA_PATH = None
-for p in possible_paths:
-  if p.exists():
-    DATA_PATH = p
-    break
+DATA_PATH = BASE_DIR / "data" / "expected_positions.csv"
 
 
 @st.cache_data(ttl=60)
 def load_data():
-  if DATA_PATH is None:
+  if not DATA_PATH.exists():
     return pd.DataFrame()
 
   try:
     data = pd.read_csv(DATA_PATH)
     if len(data.columns) <= 1:
       data = pd.read_csv(DATA_PATH, sep="\t")
-  except Exception as e:
-    st.error(f"Error reading CSV: {e}")
+  except Exception:
     return pd.DataFrame()
 
-  # Clean whitespace from column names and team values
   data.columns = data.columns.str.strip()
   if "team" in data.columns:
     data["team"] = data["team"].astype(str).str.strip()
 
-  # Safely convert percentage strings (e.g., '17.80%' -> 0.178)
   pct_cols = ["Title", "Promotion", "Promotion P/O", "REL"]
   for col in pct_cols:
     if col in data.columns:
@@ -53,13 +69,9 @@ def load_data():
       )
       data[col] = pd.to_numeric(data[col], errors="coerce") / 100.0
 
-  # Ensure position and points are numbers
-  if "xpos" in data.columns:
-    data["xpos"] = pd.to_numeric(data["xpos"], errors="coerce")
-  if "xpts" in data.columns:
-    data["xpts"] = pd.to_numeric(data["xpts"], errors="coerce")
+  data["xpos"] = pd.to_numeric(data["xpos"], errors="coerce")
+  data["xpts"] = pd.to_numeric(data["xpts"], errors="coerce")
 
-  # Parse dates cleanly
   if "date" in data.columns:
     data["date_dt"] = pd.to_datetime(
         data["date"], format="%d-%b-%y", errors="coerce"
@@ -71,20 +83,41 @@ def load_data():
 
 df = load_data()
 
-# Fail-safe check if data failed to load
-if df.empty or "team" not in df.columns:
-  st.error(
-      "⚠️ `expected_positions.csv` was found but contains no data or incorrect"
-      " columns."
-  )
-  st.write("Current working directory path:", str(DATA_PATH))
+if df.empty:
+  st.error("⚠️ Unable to load dataset. Please check CSV file.")
   st.stop()
 
+# Header Section
+st.title("⚽ EFL Championship Trajectories")
+st.caption("Opta Expected Metrics & Season Outcome Probabilities")
+
+# Top KPI Summary Cards
+latest_date = df["date"].iloc[-1]
+latest_df = df[df["date"] == latest_date]
+
+top_title = latest_df.sort_values(by="Title", ascending=False).iloc[0]
+top_xpts = latest_df.sort_values(by="xpts", ascending=False).iloc[0]
+
+kpi1, kpi2, kpi3 = st.columns(3)
+kpi1.metric(
+    "Title Favorite",
+    f"{top_title['team']}",
+    f"{top_title['Title'] * 100:.1f}% Prob",
+)
+kpi2.metric(
+    "Expected Points Leader",
+    f"{top_xpts['team']}",
+    f"{top_xpts['xpts']:.1f} xPts",
+)
+kpi3.metric("Latest Snapshot", f"{latest_date}")
+
+st.markdown("---")
+
 # Sidebar Filters
-st.sidebar.header("Filter Options")
-all_teams = sorted(df["team"].dropna().unique())
+st.sidebar.header("Dashboard Controls")
+all_teams = sorted(df["team"].unique())
 selected_teams = st.sidebar.multiselect(
-    "Select Teams (Default: All Teams):", all_teams, default=all_teams
+    "Filter Teams:", all_teams, default=all_teams
 )
 
 if not selected_teams:
@@ -93,84 +126,106 @@ if not selected_teams:
 filtered_df = df[df["team"].isin(selected_teams)]
 
 
-# Chart Generator
-def create_metric_chart(
-    df_data, y_col, title, invert_y=False, is_percent=False
+# Chart Builder
+def create_chart(
+    df_data, y_col, title, invert_y=False, is_percent=False, add_thresholds=False
 ):
   fig = px.line(
       df_data,
       x="date",
       y=y_col,
       color="team",
+      color_discrete_map=TEAM_COLORS,
       line_shape="spline",
-      title=title,
-      labels={"date": "Date", y_col: title, "team": "Team"},
+      title=f"<b>{title}</b>",
+      labels={"date": "Matchday Date", y_col: title, "team": "Club"},
   )
 
+  fig.update_traces(line=dict(width=2.5), hovertemplate="%{y}")
+
   fig.update_layout(
-      height=350,
-      margin=dict(l=20, r=20, t=40, b=20),
+      height=360,
+      margin=dict(l=20, r=20, t=50, b=20),
       showlegend=False,
       hovermode="x unified",
       paper_bgcolor="rgba(0,0,0,0)",
-      plot_bgcolor="rgba(245,245,245,0.5)",
+      plot_bgcolor="rgba(248,249,250,0.8)",
+      font=dict(family="Arial, sans-serif", size=12),
+      title_font=dict(size=15),
   )
 
   if invert_y:
     fig.update_yaxes(autorange="reversed", dtick=2, range=[24.5, 0.5])
 
+  if add_thresholds:
+    # Add Promotion / Relegation threshold lines for expected position
+    fig.add_hline(
+        y=2.5,
+        line_dash="dot",
+        line_color="green",
+        annotation_text="Auto Promotion (2nd)",
+    )
+    fig.add_hline(
+        y=6.5, line_dash="dot", line_color="blue", annotation_text="Play-offs (6th)"
+    )
+    fig.add_hline(
+        y=21.5, line_dash="dot", line_color="red", annotation_text="Relegation (22nd)"
+    )
+
   if is_percent:
-    fig.update_yaxes(tickformat=".2p")
+    fig.update_yaxes(tickformat=".1p")
 
   return fig
 
 
-# Render 3x2 Grid
-row1_col1, row1_col2, row1_col3 = st.columns(3)
-row2_col1, row2_col2, row2_col3 = st.columns(3)
+# 3x2 Visual Grid
+col1, col2, col3 = st.columns(3)
+col4, col5, col6 = st.columns(3)
 
-with row1_col1:
+with col1:
   st.plotly_chart(
-      create_metric_chart(
-          filtered_df, "Title", "Average of Title", is_percent=True
+      create_chart(
+          filtered_df,
+          "xpos",
+          "Expected Position",
+          invert_y=True,
+          add_thresholds=True,
       ),
       use_container_width=True,
   )
 
-with row1_col2:
+with col2:
   st.plotly_chart(
-      create_metric_chart(
-          filtered_df, "xpos", "Expected Position", invert_y=True
+      create_chart(filtered_df, "xpts", "Expected Points (xPts)"),
+      use_container_width=True,
+  )
+
+with col3:
+  st.plotly_chart(
+      create_chart(filtered_df, "Title", "Title Win Probability", is_percent=True),
+      use_container_width=True,
+  )
+
+with col4:
+  st.plotly_chart(
+      create_chart(
+          filtered_df, "Promotion", "Automatic Promotion %", is_percent=True
       ),
       use_container_width=True,
   )
 
-with row1_col3:
+with col5:
   st.plotly_chart(
-      create_metric_chart(filtered_df, "xpts", "Sum of xpts"),
-      use_container_width=True,
-  )
-
-with row2_col1:
-  st.plotly_chart(
-      create_metric_chart(
-          filtered_df, "Promotion P/O", "Sum of Promotion P/O", is_percent=True
+      create_chart(
+          filtered_df, "Promotion P/O", "Play-off Probability %", is_percent=True
       ),
       use_container_width=True,
   )
 
-with row2_col2:
+with col6:
   st.plotly_chart(
-      create_metric_chart(
-          filtered_df, "REL", "Sum of REL", is_percent=True
-      ),
-      use_container_width=True,
-  )
-
-with row2_col3:
-  st.plotly_chart(
-      create_metric_chart(
-          filtered_df, "Promotion", "Sum of Promotion", is_percent=True
+      create_chart(
+          filtered_df, "REL", "Relegation Probability %", is_percent=True
       ),
       use_container_width=True,
   )

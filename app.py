@@ -252,24 +252,39 @@ def create_context_chart(
 ):
   fig = go.Figure()
 
-  if show_background:
-    unselected_df = full_df[~full_df["team"].isin(selected_list)]
-    for team, group in unselected_df.groupby("team"):
-      fig.add_trace(
-          go.Scatter(
-              x=group["date"],
-              y=group[y_col],
-              mode="lines",
-              line=dict(color="#CBD5E1", width=1),
-              opacity=0.35,
-              hoverinfo="skip",
-              showlegend=False,
-          )
-      )
+  # Order traces explicitly so unified hover respects metric value order
+  if invert_y:
+    # Position: sort 1 at the top down to 24
+    ordered_teams = (
+        full_df.groupby("team")[y_col].last().sort_values(ascending=True).index
+    )
+  else:
+    # Probabilities & Points: sort highest value at top down to lowest
+    ordered_teams = (
+        full_df.groupby("team")[y_col].last().sort_values(ascending=False).index
+    )
 
-  highlight_df = full_df[full_df["team"].isin(selected_list)]
-  for team in selected_list:
-    team_data = highlight_df[highlight_df["team"] == team]
+  if show_background:
+    unselected = [t for t in ordered_teams if t not in selected_list]
+    for team in unselected:
+      group = full_df[full_df["team"] == team]
+      if not group.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=group["date"],
+                y=group[y_col],
+                mode="lines",
+                name=team,
+                line=dict(color="#CBD5E1", width=1),
+                opacity=0.35,
+                hovertemplate=f"<b>{team}</b>: %{{y}}<extra></extra>",
+                showlegend=False,
+            )
+        )
+
+  highlight_teams = [t for t in ordered_teams if t in selected_list]
+  for team in highlight_teams:
+    team_data = full_df[full_df["team"] == team]
     if not team_data.empty:
       color = TEAM_COLORS.get(team, "#1E293B")
       fig.add_trace(
@@ -285,9 +300,11 @@ def create_context_chart(
       )
 
   show_legend_flag = 1 < len(selected_list) <= 6
-
-  # Dynamic top margin: Expand top padding to 75px if multi-line legend is active
-  top_margin = 75 if show_legend_flag and len(selected_list) > 3 else (50 if show_legend_flag else 35)
+  top_margin = (
+      75
+      if show_legend_flag and len(selected_list) > 3
+      else (50 if show_legend_flag else 35)
+  )
 
   fig.update_layout(
       height=390,
@@ -308,6 +325,7 @@ def create_context_chart(
           font=dict(size=10),
       ),
       hovermode="x unified",
+      hoverlabel=dict(namelength=-1),
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(248,249,250,0.8)",
       font=dict(family="Arial, sans-serif", size=11),

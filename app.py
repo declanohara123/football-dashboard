@@ -284,12 +284,21 @@ def create_context_chart(
           )
       )
 
-  # Layout - showlegend disabled to prevent 24-team legend block from squashing charts
+  show_legend_flag = 1 < len(selected_list) <= 6
+
   fig.update_layout(
       height=380,
-      margin=dict(l=30, r=25, t=40, b=25),
+      margin=dict(l=30, r=25, t=50 if show_legend_flag else 35, b=25),
       title=f"<b>{title}</b>",
-      showlegend=False,
+      showlegend=show_legend_flag,
+      legend=dict(
+          orientation="h",
+          yanchor="bottom",
+          y=1.02,
+          xanchor="right",
+          x=1,
+          font=dict(size=10),
+      ),
       hovermode="x unified",
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(248,249,250,0.8)",
@@ -300,13 +309,13 @@ def create_context_chart(
     fig.update_yaxes(range=y_range)
 
   if invert_y:
-    # Explicit position axis limits from 24 up to 1 (dtick=2, tick0=1 prevents -1 or 0 values)
+    # Set explicit tick values [1, 4, 8, 12, 16, 20, 24] to avoid 25 completely
     fig.update_yaxes(
         autorange="reversed",
         range=[24.5, 0.5],
-        tick0=1,
-        dtick=2,
-        tickmode="linear",
+        tickmode="array",
+        tickvals=[1, 4, 8, 12, 16, 20, 24],
+        ticktext=["1", "4", "8", "12", "16", "20", "24"],
     )
 
   if is_percent:
@@ -423,3 +432,4 @@ with col6:
       ),
       use_container_width=True,
   )
+

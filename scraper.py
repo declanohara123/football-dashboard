@@ -1,69 +1,105 @@
-from datetime import datetime
-from pathlib import Path
-import pandas as pd
 
-# Paths
+from datetime import datetime
+import json
+from pathlib import Path
+import re
+import pandas as pd
+import requests
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "data" / "expected_positions.csv"
 
 
-def run_scraper():
-  """Fetches latest data snapshot and appends new records to CSV."""
+def scrape_the_analyst_table():
+  """Scrapes the Championship predicted table probabilities from Opta/The Analyst."""
+  url = "https://theanalyst.com/competition/english-championship/table"
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+          " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
+
+  response = requests.get(url, headers=headers)
+  if response.status_code != 200:
+    raise RuntimeError(
+        f"Failed to load The Analyst page. Status: {response.status_code}"
+    )
+
+  html = response.text
   today_str = datetime.now().strftime("%d-%b-%y")
 
-  # Read existing data to avoid duplicate date entries
-  if DATA_PATH.exists():
+  # Search for Opta's embedded JSON state data within script tags
+  json_match = re.search(
+      r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html
+  )
+
+  extracted_rows = []
+
+  if json_match:
+    payload = json.loads(json_match.group(1))
+    # Traverse Next.js props to find the predicted table dataset
     try:
-      existing_df = pd.read_csv(DATA_PATH)
-      if len(existing_df.columns) <= 1:
-        existing_df = pd.read_csv(DATA_PATH, sep="\t")
-      existing_df.columns = existing_df.columns.str.strip()
+      page_props = payload.get("props", {}).get("pageProps", {})
+      table_data = (
+          page_props.get("tableData", [])
+          or page_props.get("predictionTable", [])
+          or page_props.get("standings", [])
+      )
 
-      # Check if today's date has already been logged
-      if "date" in existing_df.columns:
-        existing_dates = existing_df["date"].astype(str).str.strip().tolist()
-        if today_str in existing_dates:
-          print(f"Data for {today_str} already exists in CSV. Skipping update.")
-          return
+      for item in table_data:
+        extracted_rows.append({
+            "xpos": item.get("rank") or item.get("position"),
+            "team": item.get("teamName") or item.get("team", {}).get("name"),
+            "xpts": item.get("pts") or item.get("expectedPoints"),
+            "Title": f"{item.get('titleProb', 0):.2f}%",
+            "Promotion": f"{item.get('promoProb', 0):.2f}%",
+            "Promotion P/O": f"{item.get('playoffProb', 0):.2f}%",
+            "REL": f"{item.get('relegationProb', 0):.2f}%",
+            "date": today_str,
+        })
     except Exception as e:
-      print(f"Notice reading existing file: {e}")
+      print(f"JSON parsing notice: {e}")
 
-  # --------------------------------------------------------------------------
-  # PLACEHOLDER / SCRAPER LOGIC:
-  # Replace this block with your live scraping code (e.g. requests / BeautifulSoup / Understat API)
-  # --------------------------------------------------------------------------
-  print(f"Fetching latest matchday expected points snapshot for {today_str}...")
+  # Fallback: Parse via Pandas HTML reader if script tag parsing varies
+  if not extracted_rows:
+    dfs = pd.read_html(html)
+    for df_table in dfs:
+      if "Team" in df_table.columns or "team" in df_table.columns:
+        df_table.columns = df_table.columns.str.strip()
+        df_table["date"] = today_str
+        return df_table
 
-  # Example structure matching your schema
-  sample_teams = [
-      "Millwall",
-      "West Ham",
-      "Wolves",
-      "Middlesbrough",
-      "Southampton",
-  ]
-  new_rows = []
-  for idx, team in enumerate(sample_teams, start=1):
-    new_rows.append({
-        "xpos": idx,
-        "team": team,
-        "xpts": round(78.0 - (idx * 1.2), 2),
-        "Title": f"{max(1, 18 - idx * 2):.2f}%",
-        "Promotion": f"{max(1, 30 - idx * 3):.2f}%",
-        "Promotion P/O": "40.00%",
-        "REL": "1.00%",
-        "date": today_str,
-    })
+  df_out = pd.DataFrame(extracted_rows)
+  return df_out
 
-  new_df = pd.DataFrame(new_rows)
-  # --------------------------------------------------------------------------
 
-  # Append new records to the CSV file
-  file_exists = DATA_PATH.exists()
-  new_df.to_csv(DATA_PATH, mode="a", index=False, header=not file_exists)
-  print(f"Successfully appended {len(new_df)} new rows for {today_str}!")
+def main():
+  try:
+    today_str = datetime.now().strftime("%d-%b-%y")
+
+    # Avoid duplicate scrapes for the same date
+    if DATA_PATH.exists():
+      existing = pd.read_csv(DATA_PATH)
+      if (
+          "date" in existing.columns
+          and today_str in existing["date"].astype(str).values
+      ):
+        print(f"Data for {today_str} already recorded. Exiting scraper.")
+        return
+
+    new_data = scrape_the_analyst_table()
+
+    if not new_data.empty:
+      file_exists = DATA_PATH.exists()
+      new_data.to_csv(DATA_PATH, mode="a", index=False, header=not file_exists)
+      print(f"Successfully scraped and appended data for {today_str}")
+    else:
+      print("Scraper ran but returned no new rows.")
+
+  except Exception as err:
+    print(f"Error executing scraper: {err}")
 
 
 if __name__ == "__main__":
-  run_scraper()
-
+  main()

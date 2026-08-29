@@ -3,7 +3,7 @@ name: Daily Football Data Auto-Update
 on:
   schedule:
     # Runs every morning at 09:00 UTC
-    - cron: '0 9 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
 
 jobs:

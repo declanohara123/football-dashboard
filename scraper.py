@@ -38,8 +38,11 @@ def run_scraper():
     try:
       print(f"Navigating to {URL}...")
       page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-      page.wait_for_selector("table", timeout=30000)
-      page.wait_for_timeout(4000)
+
+      # Wait specifically for table rows containing data cells to render
+      page.wait_for_selector("table tbody tr td", timeout=45000)
+      page.wait_for_timeout(3000)  # Buffer to allow all 24 teams to render
+
       html_content = page.content()
     except Exception as e:
       print(f"Scraper error during page load: {e}")
@@ -52,47 +55,53 @@ def run_scraper():
   table = soup.find("table")
 
   if not table:
-    print("Error: Could not find any table element on the page.")
+    print("Error: Could not find table element on page.")
     sys.exit(1)
 
   rows = []
-  for tr in table.find_all("tr"):
-    cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+  tbody = table.find("tbody") or table
+  for tr in tbody.find_all("tr"):
+    cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
     if len(cells) >= 3:
       rows.append(cells)
 
   if not rows:
-    print("Error: No valid data rows extracted from table.")
+    print("Error: No populated data rows extracted from table.")
     sys.exit(1)
 
   parsed_data = []
   for idx, r in enumerate(rows, start=1):
-    # Determine position (use 1st column if numeric, else loop index)
-    pos_val = r[0] if (r[0].isdigit() or "." in r[0]) else str(idx)
-
-    # Determine team name (usually 2nd cell, or 1st if position column omitted)
-    if r[0].isdigit():
+    # Detect position column vs team name column dynamically
+    first_col = r[0]
+    if first_col.isdigit():
+      pos_val = first_col
       team_val = r[1]
       pts_val = r[2] if len(r) > 2 else "0"
-      offset = 0
+      title_val = r[3] if len(r) > 3 else "0%"
+      promo_val = r[4] if len(r) > 4 else "0%"
+      po_val = r[5] if len(r) > 5 else "0%"
+      rel_val = r[6] if len(r) > 6 else "0%"
     else:
+      pos_val = str(idx)
       team_val = r[0]
       pts_val = r[1] if len(r) > 1 else "0"
-      offset = -1
+      title_val = r[2] if len(r) > 2 else "0%"
+      promo_val = r[3] if len(r) > 3 else "0%"
+      po_val = r[4] if len(r) > 4 else "0%"
+      rel_val = r[5] if len(r) > 5 else "0%"
 
     parsed_data.append({
         "xpos": pos_val,
         "team": team_val,
         "xpts": pts_val,
-        "Title": r[3 + offset] if len(r) > (3 + offset) else "0%",
-        "Promotion": r[4 + offset] if len(r) > (4 + offset) else "0%",
-        "Promotion P/O": r[5 + offset] if len(r) > (5 + offset) else "0%",
-        "REL": r[6 + offset] if len(r) > (6 + offset) else "0%",
+        "Title": title_val,
+        "Promotion": promo_val,
+        "Promotion P/O": po_val,
+        "REL": rel_val,
     })
 
   new_df = pd.DataFrame(parsed_data)
 
-  # Check for web header date stamp or default to today's date
   date_heading = soup.find(
       lambda tag: tag.name in ["h2", "h3", "p", "div", "span"]
       and "Updated" in tag.text

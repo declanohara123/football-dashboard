@@ -1,5 +1,6 @@
 import os
 import sys
+import traceback
 from pathlib import Path
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -37,44 +38,48 @@ def run_scraper():
 
     try:
       print(f"Navigating to {URL}...")
-      page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+      page.goto(URL, wait_until="load", timeout=60000)
 
-      # Wait specifically for table rows containing data cells to render
-      page.wait_for_selector("table tbody tr td", timeout=45000)
-      page.wait_for_timeout(3000)  # Buffer to allow all 24 teams to render
+      # Give dynamic elements up to 10s to pop into DOM
+      page.wait_for_timeout(5000)
 
       html_content = page.content()
-    except Exception as e:
-      print(f"Scraper error during page load: {e}")
+    except Exception:
+      print("Scraper error during page navigation:")
+      traceback.print_exc()
       browser.close()
       sys.exit(1)
 
     browser.close()
 
   soup = BeautifulSoup(html_content, "html.parser")
-  table = soup.find("table")
+  tables = soup.find_all("table")
 
-  if not table:
-    print("Error: Could not find table element on page.")
+  if not tables:
+    print("Error: Could not find any table element on the page.")
     sys.exit(1)
 
+  # Pick the table with the most rows
+  target_table = max(tables, key=lambda t: len(t.find_all("tr")))
+
   rows = []
-  tbody = table.find("tbody") or table
-  for tr in tbody.find_all("tr"):
+  for tr in target_table.find_all("tr"):
     cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
     if len(cells) >= 3:
       rows.append(cells)
 
   if not rows:
-    print("Error: No populated data rows extracted from table.")
+    print("Error: No data rows extracted from table.")
     sys.exit(1)
 
   parsed_data = []
   for idx, r in enumerate(rows, start=1):
-    # Detect position column vs team name column dynamically
-    first_col = r[0]
-    if first_col.isdigit():
-      pos_val = first_col
+    # Skip header row if first cell is non-numeric text like 'Pos' or 'Position'
+    if r[0].lower() in ["pos", "position", "#", "rank"]:
+      continue
+
+    if r[0].isdigit():
+      pos_val = r[0]
       team_val = r[1]
       pts_val = r[2] if len(r) > 2 else "0"
       title_val = r[3] if len(r) > 3 else "0%"
@@ -100,6 +105,10 @@ def run_scraper():
         "REL": rel_val,
     })
 
+  if not parsed_data:
+    print("Error: Parsed data empty after processing rows.")
+    sys.exit(1)
+
   new_df = pd.DataFrame(parsed_data)
 
   date_heading = soup.find(
@@ -115,7 +124,7 @@ def run_scraper():
 
   if not existing_df.empty and "date" in existing_df.columns:
     if date_str in existing_df["date"].values:
-      print(f"Data for date '{date_str}' is already recorded. Exiting.")
+      print(f"Data for date '{date_str}' is already recorded in CSV. Exiting.")
       sys.exit(0)
     updated_df = pd.concat([existing_df, new_df], ignore_index=True)
   else:
@@ -129,4 +138,9 @@ def run_scraper():
 
 
 if __name__ == "__main__":
-  run_scraper()
+  try:
+    run_scraper()
+  except Exception:
+    print("Fatal exception encountered during scraper run:")
+    traceback.print_exc()
+    sys.exit(1)

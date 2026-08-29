@@ -36,11 +36,7 @@ def run_scraper():
         try:
             print(f"Navigating to {URL}...")
             page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-            
-            # Allow dynamic components time to load into DOM
             page.wait_for_timeout(6000)
-            
-            # Scroll down slightly to trigger lazy-loaded dynamic widgets
             page.mouse.wheel(0, 500)
             page.wait_for_timeout(2000)
 
@@ -68,7 +64,6 @@ def run_scraper():
             break
 
     if not predicted_table:
-        # Fallback to the table with the most rows
         predicted_table = max(tables, key=lambda t: len(t.find_all("tr")))
 
     rows = []
@@ -131,15 +126,14 @@ def run_scraper():
     new_df["date"] = date_str
 
     if not existing_df.empty and "date" in existing_df.columns:
-        if date_str in existing_df["date"].values:
-            print(f"Data for date '{date_str}' is already recorded in CSV. Exiting.")
-            sys.exit(0)
+        # Overwrite existing entries for this date instead of skipping
+        existing_df = existing_df[existing_df["date"] != date_str]
         updated_df = pd.concat([existing_df, new_df], ignore_index=True)
     else:
         updated_df = new_df
 
     updated_df.to_csv(CSV_PATH, index=False)
-    print(f"Successfully scraped and appended {len(new_df)} team entries for date: '{date_str}'.")
+    print(f"Successfully scraped and overwritten entries for date: '{date_str}'.")
 
 
 if __name__ == "__main__":

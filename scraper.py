@@ -52,18 +52,23 @@ def run_scraper():
     soup = BeautifulSoup(html_content, "html.parser")
     tables = soup.find_all("table")
 
+    print(f"Debug: Found {len(tables)} standard <table> elements on page.")
+
     if not tables:
         print("Error: Could not find any table element on the page.")
         sys.exit(1)
 
     predicted_table = None
-    for tbl in tables:
+    for idx, tbl in enumerate(tables):
         header_text = tbl.get_text().lower()
-        if any(k in header_text for k in ["xpts", "title", "promotion", "rel"]):
+        print(f"Table {idx} Preview: {header_text[:120]}...")
+        if any(k in header_text for k in ["xpts", "title", "promotion", "rel", "pro", "po"]):
             predicted_table = tbl
+            print(f"Target prediction table selected at index {idx}.")
             break
 
     if not predicted_table:
+        print("Debug: No table matched keywords explicitly. Falling back to largest table.")
         predicted_table = max(tables, key=lambda t: len(t.find_all("tr")))
 
     rows = []
@@ -72,6 +77,8 @@ def run_scraper():
         cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
         if len(cells) >= 3:
             rows.append(cells)
+
+    print(f"Debug: Extracted {len(rows)} total rows from selected table.")
 
     if not rows:
         print("Error: No data rows extracted from target table.")
@@ -126,14 +133,13 @@ def run_scraper():
     new_df["date"] = date_str
 
     if not existing_df.empty and "date" in existing_df.columns:
-        # Strip out existing rows for this date to force overwrite
         existing_df = existing_df[existing_df["date"] != date_str]
         updated_df = pd.concat([existing_df, new_df], ignore_index=True)
     else:
         updated_df = new_df
 
     updated_df.to_csv(CSV_PATH, index=False)
-    print(f"Successfully scraped and overwritten {len(new_df)} team entries for date: '{date_str}'.")
+    print(f"Successfully scraped and saved {len(new_df)} team entries for date: '{date_str}'.")
 
 
 if __name__ == "__main__":

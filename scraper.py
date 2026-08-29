@@ -126,14 +126,14 @@ def run_scraper():
     new_df["date"] = date_str
 
     if not existing_df.empty and "date" in existing_df.columns:
-        # Filter out old entries for this date so it always overwrites
+        # Strip out existing rows for this date to force overwrite
         existing_df = existing_df[existing_df["date"] != date_str]
         updated_df = pd.concat([existing_df, new_df], ignore_index=True)
     else:
         updated_df = new_df
 
     updated_df.to_csv(CSV_PATH, index=False)
-    print(f"Successfully scraped and overwritten entries for date: '{date_str}'.")
+    print(f"Successfully scraped and overwritten {len(new_df)} team entries for date: '{date_str}'.")
 
 
 if __name__ == "__main__":

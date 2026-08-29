@@ -38,11 +38,8 @@ def run_scraper():
 
     try:
       print(f"Navigating to {URL}...")
-      page.goto(URL, wait_until="load", timeout=60000)
-
-      # Give dynamic elements up to 10s to pop into DOM
+      page.goto(URL, wait_until="domcontentloaded", timeout=60000)
       page.wait_for_timeout(5000)
-
       html_content = page.content()
     except Exception:
       print("Scraper error during page navigation:")
@@ -59,7 +56,6 @@ def run_scraper():
     print("Error: Could not find any table element on the page.")
     sys.exit(1)
 
-  # Pick the table with the most rows
   target_table = max(tables, key=lambda t: len(t.find_all("tr")))
 
   rows = []
@@ -74,7 +70,6 @@ def run_scraper():
 
   parsed_data = []
   for idx, r in enumerate(rows, start=1):
-    # Skip header row if first cell is non-numeric text like 'Pos' or 'Position'
     if r[0].lower() in ["pos", "position", "#", "rank"]:
       continue
 

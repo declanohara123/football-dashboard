@@ -39,7 +39,11 @@ def run_scraper():
     try:
       print(f"Navigating to {URL}...")
       page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-      page.wait_for_timeout(5000)
+
+      # Wait for table elements to fully mount into DOM
+      page.wait_for_selector("table", timeout=45000)
+      page.wait_for_timeout(4000)
+
       html_content = page.content()
     except Exception:
       print("Scraper error during page navigation:")
@@ -56,21 +60,33 @@ def run_scraper():
     print("Error: Could not find any table element on the page.")
     sys.exit(1)
 
-  target_table = max(tables, key=lambda t: len(t.find_all("tr")))
+  # Target specifically the table containing Opta prediction headers (xPts / Title / Promotion / REL)
+  predicted_table = None
+  for tbl in tables:
+    header_text = tbl.get_text().lower()
+    if any(k in header_text for k in ["xpts", "title", "promotion", "rel"]):
+      predicted_table = tbl
+      break
 
+  # Fallback to the widest table if explicit headers aren't in <thead>
+  if not predicted_table:
+    predicted_table = max(tables, key=lambda t: len(t.find_all("tr")))
+
+  tbody = predicted_table.find("tbody") or predicted_table
   rows = []
-  for tr in target_table.find_all("tr"):
+  for tr in tbody.find_all("tr"):
     cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
     if len(cells) >= 3:
       rows.append(cells)
 
   if not rows:
-    print("Error: No data rows extracted from table.")
+    print("Error: No data rows extracted from predicted table.")
     sys.exit(1)
 
   parsed_data = []
   for idx, r in enumerate(rows, start=1):
-    if r[0].lower() in ["pos", "position", "#", "rank"]:
+    # Skip header row if present in tbody
+    if r[0].lower() in ["pos", "position", "#", "rank", "team"]:
       continue
 
     if r[0].isdigit():
@@ -127,8 +143,7 @@ def run_scraper():
 
   updated_df.to_csv(CSV_PATH, index=False)
   print(
-      f"Successfully scraped and appended {len(new_df)} team entries for date:"
-      f" '{date_str}'."
+      f"Successfully scraped and appended {len(new_df)} team entries for predicted table date: '{date_str}'."
   )
 
 

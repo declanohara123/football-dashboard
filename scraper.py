@@ -116,10 +116,6 @@ def run_scraper():
             "REL": rel_val,
         })
 
-    if not parsed_data:
-        print("Error: Parsed data empty after processing rows.")
-        sys.exit(1)
-
     new_df = pd.DataFrame(parsed_data)
 
     date_heading = soup.find(
@@ -133,6 +129,7 @@ def run_scraper():
     new_df["date"] = date_str
 
     if not existing_df.empty and "date" in existing_df.columns:
+        # ALWAYS strip out existing rows for this date so it forces an overwrite
         existing_df = existing_df[existing_df["date"] != date_str]
         updated_df = pd.concat([existing_df, new_df], ignore_index=True)
     else:

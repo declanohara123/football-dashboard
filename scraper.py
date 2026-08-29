@@ -26,7 +26,6 @@ def run_scraper():
 
   with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
-    # Custom User-Agent to prevent bot blocking
     context = browser.new_context(
         user_agent=(
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -38,13 +37,9 @@ def run_scraper():
 
     try:
       print(f"Navigating to {URL}...")
-      # Use domcontentloaded instead of networkidle to prevent 30s timeouts
       page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-
-      # Wait specifically for the table element to load into the DOM
       page.wait_for_selector("table", timeout=30000)
-      page.wait_for_timeout(3000)  # Short buffer for dynamic JS rendering
-
+      page.wait_for_timeout(4000)
       html_content = page.content()
     except Exception as e:
       print(f"Scraper error during page load: {e}")
@@ -60,40 +55,44 @@ def run_scraper():
     print("Error: Could not find any table element on the page.")
     sys.exit(1)
 
-  # Parse table headers
-  headers = [
-      th.get_text(strip=True)
-      for th in table.find_all("th")
-      if th.get_text(strip=True)
-  ]
-
   rows = []
   for tr in table.find_all("tr"):
     cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-    if len(cells) >= 6:
+    if len(cells) >= 3:
       rows.append(cells)
 
   if not rows:
-    print("Error: No data rows extracted from table.")
+    print("Error: No valid data rows extracted from table.")
     sys.exit(1)
 
-  # Map extracted table rows into standard DataFrame
   parsed_data = []
-  for r in rows:
-    # Expected table format: Pos, Team, xPts, Title %, Promo %, PO %, Rel %
+  for idx, r in enumerate(rows, start=1):
+    # Determine position (use 1st column if numeric, else loop index)
+    pos_val = r[0] if (r[0].isdigit() or "." in r[0]) else str(idx)
+
+    # Determine team name (usually 2nd cell, or 1st if position column omitted)
+    if r[0].isdigit():
+      team_val = r[1]
+      pts_val = r[2] if len(r) > 2 else "0"
+      offset = 0
+    else:
+      team_val = r[0]
+      pts_val = r[1] if len(r) > 1 else "0"
+      offset = -1
+
     parsed_data.append({
-        "xpos": r[0],
-        "team": r[1],
-        "xpts": r[2],
-        "Title": r[3] if len(r) > 3 else "0%",
-        "Promotion": r[4] if len(r) > 4 else "0%",
-        "Promotion P/O": r[5] if len(r) > 5 else "0%",
-        "REL": r[6] if len(r) > 6 else "0%",
+        "xpos": pos_val,
+        "team": team_val,
+        "xpts": pts_val,
+        "Title": r[3 + offset] if len(r) > (3 + offset) else "0%",
+        "Promotion": r[4 + offset] if len(r) > (4 + offset) else "0%",
+        "Promotion P/O": r[5 + offset] if len(r) > (5 + offset) else "0%",
+        "REL": r[6 + offset] if len(r) > (6 + offset) else "0%",
     })
 
   new_df = pd.DataFrame(parsed_data)
 
-  # Grab date stamp from webpage header if available, otherwise use today's date
+  # Check for web header date stamp or default to today's date
   date_heading = soup.find(
       lambda tag: tag.name in ["h2", "h3", "p", "div", "span"]
       and "Updated" in tag.text

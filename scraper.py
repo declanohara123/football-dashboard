@@ -126,7 +126,7 @@ def run_scraper():
     new_df["date"] = date_str
 
     if not existing_df.empty and "date" in existing_df.columns:
-        # Overwrite existing entries for this date instead of skipping
+        # Overwrite existing entries for this date instead of exiting
         existing_df = existing_df[existing_df["date"] != date_str]
         updated_df = pd.concat([existing_df, new_df], ignore_index=True)
     else:

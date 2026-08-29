@@ -31,8 +31,10 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
-      - name: Run Playwright Scraper
-        run: python scraper.py
+      - name: Clean Python Cache & Run Playwright Scraper
+        run: |
+          find . -type d -name "__pycache__" -exec rm -rf {} +
+          python -B scraper.py
 
       - name: Commit and Push Updated CSV to GitHub
         run: |

@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 CSV_PATH = DATA_DIR / "expected_positions.csv"
 
-# Target the standalone widget to bypass main-site anti-bot and iframe nesting
+# Target the standalone widget directly
 URL = "https://dataviz.theanalyst.com/opta-football-predictions/?competition=al48ooi8acoibema226051250"
 
 def run_scraper():
@@ -36,33 +36,11 @@ def run_scraper():
         try:
             print(f"Navigating to {URL}...")
             page.goto(URL, wait_until="networkidle", timeout=60000)
-            page.wait_for_timeout(5000)
-
-            print("Hunting for the Predictions tab...")
-            # Aggressive JS clicker: scans all elements for exact text match
-            clicked = page.evaluate("""() => {
-                const elements = Array.from(document.querySelectorAll('*'));
-                const btn = elements.find(el => {
-                    const text = el.innerText ? el.innerText.trim() : '';
-                    // Match "Prediction" or "Predictions" exactly, ignore large container elements
-                    return (text === 'Prediction' || text === 'Predictions') && el.children.length === 0;
-                });
-                
-                if (btn) {
-                    btn.click();
-                    return true;
-                }
-                return false;
-            }""")
-
-            if not clicked:
-                print("Could not locate the Predictions tab.")
-                sys.exit(1)
-                
-            print("Successfully clicked Predictions tab.")
-            page.wait_for_timeout(3000)
             
-            # Click centre to ensure keyboard focus
+            # Wait generously to ensure the data renders on GitHub's slower servers
+            page.wait_for_timeout(8000)
+            
+            # Click the centre to ensure keyboard focus for scrolling
             page.mouse.click(720, 500)
 
             print("Scrolling and extracting data...")
@@ -114,7 +92,11 @@ def run_scraper():
             "REL": str(r[6]) if len(r) > 6 else "0%"
         })
 
-    new_df = pd.DataFrame(parsed_data).sort_values(by="xpos")
+    # Sort numerically by expected position to fix any virtualised scroll jumbling
+    new_df = pd.DataFrame(parsed_data)
+    new_df["xpos"] = pd.to_numeric(new_df["xpos"])
+    new_df = new_df.sort_values(by="xpos")
+    
     date_str = pd.Timestamp.now().strftime("%d-%b-%y")
     new_df["date"] = date_str
 

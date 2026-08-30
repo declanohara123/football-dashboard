@@ -43,3 +43,4 @@ jobs:
           commit_message: "Auto-update Championship metrics from Opta [skip ci]"
           file_pattern: "data/expected_positions.csv"
           branch: main
+          

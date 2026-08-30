@@ -18,6 +18,25 @@ headers = {
     "Accept": "*/*"
 }
 
+def find_teams_array(data):
+    """Recursively hunt for the list of teams with predictions in the JSON tree."""
+    if isinstance(data, dict):
+        for key, val in data.items():
+            # Check if this value is a list of dictionaries containing 'name' and 'predictions'
+            if isinstance(val, list) and len(val) > 0:
+                if isinstance(val[0], dict) and "predictions" in val[0] and "name" in val[0]:
+                    return val
+            # Otherwise, search deeper
+            result = find_teams_array(val)
+            if result:
+                return result
+    elif isinstance(data, list):
+        for item in data:
+            result = find_teams_array(item)
+            if result:
+                return result
+    return None
+
 def run_scraper():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -31,15 +50,16 @@ def run_scraper():
     json_str = re.sub(r'^[^(]*\(|\);?$', '', response.text)
     data = json.loads(json_str)
     
-    parsed_data = []
+    # Use the dynamic finder instead of a hardcoded path
+    teams = find_teams_array(data)
     
-    # Extract the team array from the Opta schema
-    try:
-        teams = data['stages']['stage'][0]['teams']['team']
-    except KeyError:
-        print("Error: Could not locate the 'teams' array in the JSON payload.")
+    if not teams:
+        print("Error: Could not dynamically locate the teams array in the JSON payload.")
         return
-
+        
+    print(f"Successfully located data for {len(teams)} teams.")
+    
+    parsed_data = []
     for team_info in teams:
         team_name = team_info.get("name", "Unknown")
         xpts = 0.0
@@ -52,7 +72,6 @@ def run_scraper():
             
             elif str(pred.get("type")) == "5":
                 for r in pred.get("ranks", {}).get("rank", []):
-                    # ranks are formatted as floats (e.g. 15.48)
                     ranks[int(r["id"])] = float(r["value"])
         
         # Calculate Championship probabilities based on rank positions
@@ -86,7 +105,6 @@ def run_scraper():
     if CSV_PATH.exists():
         existing_df = pd.read_csv(CSV_PATH)
         if not existing_df.empty and "date" in existing_df.columns:
-            # Overwrite today's data if it already exists to prevent duplication
             existing_df = existing_df[existing_df["date"] != date_str]
             df = pd.concat([existing_df, df], ignore_index=True)
             

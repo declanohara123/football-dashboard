@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,15 +37,9 @@ jobs:
           find . -type d -name "__pycache__" -exec rm -rf {} +
           python -B scraper.py
 
-      - name: Commit and Push Updated CSV to GitHub
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/expected_positions.csv
-          if git diff --staged --quiet; then
-            echo "No changes in CSV to commit."
-          else
-            git commit -m "Auto-update Championship metrics from Opta [skip ci]"
-            git pull --rebase origin main
-            git push origin main
-          fi
+      - name: Commit & Push CSV Changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-update Championship metrics from Opta [skip ci]"
+          file_pattern: "data/expected_positions.csv"
+          branch: main

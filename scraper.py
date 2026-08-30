@@ -24,7 +24,7 @@ def run_scraper():
     except Exception as e:
       print(f"Warning reading existing CSV: {e}")
 
-  extracted_rows = []
+  parsed_data = []
 
   with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
@@ -41,77 +41,88 @@ def run_scraper():
     try:
       print(f"Navigating to {URL}...")
       page.goto(URL, wait_until="networkidle", timeout=60000)
-      page.mouse.wheel(0, 1000)
+
+      # Scroll down to trigger Opta widget hydration
+      page.mouse.wheel(0, 1200)
       page.wait_for_timeout(6000)
 
-      # Evaluate JS directly in browser DOM to pull all table rows (including shadow roots)
-      extracted_rows = page.evaluate("""() => {
-                const allTables = Array.from(document.querySelectorAll('table'));
-                let targetTable = null;
-                
-                for (const tbl of allTables) {
-                    if (tbl.innerText.includes('%') || tbl.innerText.toLowerCase().includes('xpts')) {
-                        targetTable = tbl;
+      # Search across all frame contexts (including Opta embed frames)
+      target_frame = None
+      for frame in page.frames:
+        try:
+          # Check for prediction markers in frame
+          txt = frame.inner_text("body").lower()
+          if "%" in txt or "xpts" in txt or "title" in txt:
+            target_frame = frame
+            print(f"Found prediction widget inside frame: {frame.url}")
+            break
+        except Exception:
+          continue
+
+      if not target_frame:
+        target_frame = page
+
+      # Extract table rows using JS DOM query across shadow root boundaries
+      rows = target_frame.evaluate("""() => {
+                const tables = Array.from(document.querySelectorAll('table'));
+                let predTable = null;
+                for (const t of tables) {
+                    if (t.innerText.includes('%') || t.innerText.toLowerCase().includes('xpts')) {
+                        predTable = t;
                         break;
                     }
                 }
-                
-                if (!targetTable && allTables.length > 0) {
-                    targetTable = allTables.length > 1 ? allTables[1] : allTables[0];
-                }
-                
-                if (!targetTable) return [];
-                
-                const trs = Array.from(targetTable.querySelectorAll('tr'));
-                return trs.map(tr => {
-                    const cells = Array.from(tr.querySelectorAll('td, th'));
-                    return cells.map(c => c.innerText.trim());
+                if (!predTable && tables.length > 1) predTable = tables[1];
+                if (!predTable && tables.length > 0) predTable = tables[0];
+                if (!predTable) return [];
+
+                return Array.from(predTable.querySelectorAll('tr')).map(tr => {
+                    return Array.from(tr.querySelectorAll('td, th')).map(c => c.innerText.trim());
                 }).filter(r => r.length >= 3);
             }""")
 
+      for idx, r in enumerate(rows, start=1):
+        if r[0].lower() in ["pos", "position", "#", "rank", "team"]:
+          continue
+
+        if r[0].isdigit():
+          pos_val = r[0]
+          team_val = r[1]
+          pts_val = r[2] if len(r) > 2 else "0"
+          title_val = r[3] if len(r) > 3 else "0%"
+          promo_val = r[4] if len(r) > 4 else "0%"
+          po_val = r[5] if len(r) > 5 else "0%"
+          rel_val = r[6] if len(r) > 6 else "0%"
+        else:
+          pos_val = str(idx)
+          team_val = r[0]
+          pts_val = r[1] if len(r) > 1 else "0"
+          title_val = r[2] if len(r) > 2 else "0%"
+          promo_val = r[3] if len(r) > 3 else "0%"
+          po_val = r[4] if len(r) > 4 else "0%"
+          rel_val = r[5] if len(r) > 5 else "0%"
+
+        parsed_data.append({
+            "xpos": pos_val,
+            "team": team_val,
+            "xpts": pts_val,
+            "Title": title_val,
+            "Promotion": promo_val,
+            "Promotion P/O": po_val,
+            "REL": rel_val,
+        })
+
     except Exception:
-      print("Error evaluating browser DOM:")
+      print("Error during page processing:")
       traceback.print_exc()
       browser.close()
       sys.exit(1)
 
     browser.close()
 
-  if not extracted_rows:
-    print("Error: Could not extract table rows using DOM evaluation.")
+  if not parsed_data:
+    print("Error: Could not extract predicted team entries.")
     sys.exit(1)
-
-  parsed_data = []
-  for idx, r in enumerate(extracted_rows, start=1):
-    if r[0].lower() in ["pos", "position", "#", "rank", "team"]:
-      continue
-
-    if r[0].isdigit():
-      pos_val = r[0]
-      team_val = r[1]
-      pts_val = r[2] if len(r) > 2 else "0"
-      title_val = r[3] if len(r) > 3 else "0%"
-      promo_val = r[4] if len(r) > 4 else "0%"
-      po_val = r[5] if len(r) > 5 else "0%"
-      rel_val = r[6] if len(r) > 6 else "0%"
-    else:
-      pos_val = str(idx)
-      team_val = r[0]
-      pts_val = r[1] if len(r) > 1 else "0"
-      title_val = r[2] if len(r) > 2 else "0%"
-      promo_val = r[3] if len(r) > 3 else "0%"
-      po_val = r[4] if len(r) > 4 else "0%"
-      rel_val = r[5] if len(r) > 5 else "0%"
-
-    parsed_data.append({
-        "xpos": pos_val,
-        "team": team_val,
-        "xpts": pts_val,
-        "Title": title_val,
-        "Promotion": promo_val,
-        "Promotion P/O": po_val,
-        "REL": rel_val,
-    })
 
   new_df = pd.DataFrame(parsed_data).drop_duplicates(subset=["team"])
   date_str = pd.Timestamp.now().strftime("%d-%b-%y")

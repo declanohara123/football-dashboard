@@ -35,17 +35,16 @@ def run_scraper():
 
         try:
             print(f"Navigating to {URL}...")
-            page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-            page.mouse.wheel(0, 800)
-            
-            # Wait specifically for Opta prediction percentages to hydrate
-            page.wait_for_selector("td:has-text('%'), th:has-text('%')", timeout=20000)
-            page.wait_for_timeout(3000)
+            page.goto(URL, wait_until="networkidle", timeout=60000)
+            page.mouse.wheel(0, 1000)
+            page.wait_for_timeout(5000)
 
             html_content = page.content()
         except Exception:
-            print("Percentage selector timeout; taking page dump fallback:")
-            html_content = page.content()
+            print("Scraper error during navigation:")
+            traceback.print_exc()
+            browser.close()
+            sys.exit(1)
 
         browser.close()
 
@@ -53,18 +52,21 @@ def run_scraper():
     tables = soup.find_all("table")
 
     if not tables:
-        print("Error: Could not find any table element on page.")
+        print("Error: Could not find any table elements on the page.")
         sys.exit(1)
 
     predicted_table = None
+
+    # Search for table containing percentages or probability markers
     for tbl in tables:
         txt = tbl.get_text()
-        if "%" in txt or "xpts" in txt.lower():
+        if "%" in txt or "xpts" in txt.lower() or "promotion" in txt.lower():
             predicted_table = tbl
             break
 
     if not predicted_table:
-        predicted_table = max(tables, key=lambda t: len(t.find_all("tr")))
+        # Fallback to second table if available (live table is usually first)
+        predicted_table = tables[1] if len(tables) > 1 else tables[0]
 
     rows = []
     tbody = predicted_table.find("tbody") or predicted_table
@@ -72,6 +74,10 @@ def run_scraper():
         cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
         if len(cells) >= 3:
             rows.append(cells)
+
+    if not rows:
+        print("Error: No data rows extracted from table.")
+        sys.exit(1)
 
     parsed_data = []
     for idx, r in enumerate(rows, start=1):
@@ -126,4 +132,3 @@ if __name__ == "__main__":
         print("Fatal exception encountered during scraper run:")
         traceback.print_exc()
         sys.exit(1)
-EOF

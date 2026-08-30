@@ -1,52 +1,48 @@
-name: Daily Football Data Auto-Update
+name: update-dataset
 
 on:
   schedule:
-    # 08:00 UTC = 09:00 AM UK local time during BST
-    - cron: '0 8 * * *'
-  workflow_dispatch:
+    # Runs at 09:00 UTC every day
+    - cron: '0 9 * * *'
+  workflow_dispatch: # Allows you to trigger it manually from the Actions tab
 
 permissions:
   contents: write
 
 jobs:
-  update-dataset:
+  scrape-data:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Check out Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # Fetches full history to prevent git rebase/push conflicts
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-
+          python-version: '3.12'
+          
       - name: Install Dependencies & Playwright Browser
         run: |
           python -m pip install --upgrade pip
-          pip install pandas requests beautifulsoup4 lxml html5lib playwright
-          playwright install chromium
-          playwright install-deps chromium
-
+          pip install pandas playwright
+          playwright install chromium --with-deps
+          
       - name: Clean Python Cache & Run Playwright Scraper
         run: |
           find . -type d -name "__pycache__" -exec rm -rf {} +
-          python -B scraper.py
-
-      - name: Hard Commit and Push Updated CSV
+          python scraper.py
+        
+      - name: Commit and Push Updated CSV to GitHub
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B main
           git add data/expected_positions.csv
-          if git status --porcelain | grep -q "data/expected_positions.csv"; then
-            git commit -m "Auto-update Championship metrics from Opta [skip ci]"
-            git push origin main --force
-            echo "Successfully pushed updated CSV to main!"
-          else
-            echo "No changes detected in data/expected_positions.csv."
-          fi
+          
+          # Only create a commit if there are actual data changes
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update Championship metrics from Opta [skip ci]"
+          
+          # Push directly from the current HEAD to the remote main branch
+          git push origin HEAD:main

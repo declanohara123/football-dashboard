@@ -29,20 +29,25 @@ def run_scraper():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
+            viewport={"width": 1440, "height": 900}
         )
         page = context.new_page()
 
         try:
             print(f"Navigating to {URL}...")
             page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(6000)
-            page.mouse.wheel(0, 500)
+            
+            # Wait for any table or content row to populate
+            page.wait_for_selector("table, tr, td", timeout=30000)
+            page.wait_for_timeout(5000)
+            
+            # Scroll down to ensure JS triggers table hydration
+            page.mouse.wheel(0, 800)
             page.wait_for_timeout(2000)
 
             html_content = page.content()
         except Exception:
-            print("Scraper error during page navigation:")
+            print("Scraper error during page navigation or selector wait:")
             traceback.print_exc()
             browser.close()
             sys.exit(1)
@@ -52,23 +57,22 @@ def run_scraper():
     soup = BeautifulSoup(html_content, "html.parser")
     tables = soup.find_all("table")
 
-    print(f"Debug: Found {len(tables)} standard <table> elements on page.")
+    print(f"Found {len(tables)} table elements on page.")
 
     if not tables:
-        print("Error: Could not find any table element on the page.")
+        print("Error: No <table> tags found on page.")
         sys.exit(1)
 
     predicted_table = None
     for idx, tbl in enumerate(tables):
         header_text = tbl.get_text().lower()
-        print(f"Table {idx} Preview: {header_text[:120]}...")
         if any(k in header_text for k in ["xpts", "title", "promotion", "rel", "pro", "po"]):
             predicted_table = tbl
-            print(f"Target prediction table selected at index {idx}.")
+            print(f"Selected prediction table at index {idx}.")
             break
 
     if not predicted_table:
-        print("Debug: No table matched keywords explicitly. Falling back to largest table.")
+        print("Fallback: Using table with maximum rows.")
         predicted_table = max(tables, key=lambda t: len(t.find_all("tr")))
 
     rows = []
@@ -78,10 +82,10 @@ def run_scraper():
         if len(cells) >= 3:
             rows.append(cells)
 
-    print(f"Debug: Extracted {len(rows)} total rows from selected table.")
+    print(f"Extracted {len(rows)} data rows.")
 
     if not rows:
-        print("Error: No data rows extracted from target table.")
+        print("Error: No populated rows extracted from table.")
         sys.exit(1)
 
     parsed_data = []
@@ -116,6 +120,10 @@ def run_scraper():
             "REL": rel_val,
         })
 
+    if not parsed_data:
+        print("Error: Parsed data array is empty.")
+        sys.exit(1)
+
     new_df = pd.DataFrame(parsed_data)
 
     date_heading = soup.find(
@@ -129,20 +137,19 @@ def run_scraper():
     new_df["date"] = date_str
 
     if not existing_df.empty and "date" in existing_df.columns:
-        # ALWAYS strip out existing rows for this date so it forces an overwrite
         existing_df = existing_df[existing_df["date"] != date_str]
         updated_df = pd.concat([existing_df, new_df], ignore_index=True)
     else:
         updated_df = new_df
 
     updated_df.to_csv(CSV_PATH, index=False)
-    print(f"Successfully scraped and saved {len(new_df)} team entries for date: '{date_str}'.")
+    print(f"Successfully updated CSV with {len(new_df)} rows for date: '{date_str}'.")
 
 
 if __name__ == "__main__":
     try:
         run_scraper()
     except Exception:
-        print("Fatal exception encountered during scraper run:")
+        print("Fatal exception during execution:")
         traceback.print_exc()
         sys.exit(1)
